@@ -1,0 +1,1401 @@
+---
+title: "Illustration of included data through data processing"
+author: "Yue Wang and Narun P"
+date:  "`r format(Sys.time(), '%d %b, %Y')`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: united
+    number_sections: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r load_data, echo=FALSE}
+rm(list = ls(all.names = TRUE)) #will clear all objects includes hidden objects.
+gc() #free up memory and report the memory usage.
+```
+
+# setting up environments
+
+## Note
+Here we the ABCD release 5.1 data-set
+
+## Loading libraries
+The following libraries and default settings were used during the analysis:
+
+
+Changes: psychopathology to mental health
+
+
+
+```{r load_libraries}
+options(scipen = 999)
+#library("sva")
+library(tidyverse)
+library(PRISMA2020)
+library(PRISMA)
+library(PRISMAstatement)
+
+library(Gmisc, quietly = TRUE)
+library(glue)
+library(htmlTable)
+library(grid)
+library(magrittr)
+
+library(ggtext)
+library(ggpubr)
+library(cowplot)
+library(ggthemes)
+library(gridExtra)
+
+
+theme_set(theme_bw() + theme(panel.grid = element_blank()))
+## parallel processing number of cores register
+all_cores <- parallel::detectCores(logical = FALSE) - 5
+
+doParallel::registerDoParallel(cores = all_cores)
+
+```
+
+
+
+
+## Setting up path
+
+We first loaded all of the relevant data files (not shown here as they refer to local directories):
+
+```{r loading_data, echo=FALSE}
+# from Qnap data windows
+#datafolder = "//np-qnapa/Data/ABCD/ABCD4/ABCD4SQL/"
+#scriptfold = "//np-qnapa/Data/Yue script/"
+#NDAfold = "//np-qnapa/Data/ABCD/ABCD4/ABCDStudyNDA/"
+#utilFold = "//np-qnapa/Data/ABCD/ABCD3/Analysis/utilFunc/"
+#studyNDAFold = "//np-qnapa/Data/ABCD/ABCD4/ABCDStudyNDA/"
+#outputfolder = "//np-qnapa/Data/ABCD/ABCD4/ABCD4_precessed_data/"
+
+### unbuntu directories
+
+#datafolder = "/media/Data/ABCD/ABCD4/ABCD4SQL/"
+#scriptfold = "/media/Data/Yue script/"
+#NDAfold = "/media/Data/ABCD/ABCD4/ABCDStudyNDA/"
+#utilFold = "/media/Data/ABCD/ABCD3/Analysis/utilFunc/"
+#studyNDAFold = "/media/Data/ABCD/ABCD4/ABCDStudyNDA/"
+#outputfolder = "/media/Data/ABCD/ABCD4/ABCD4_precessed_data/"
+#featurefolder = "/media/Data/ABCD/ABCD4/Analysis/ManipulatedData/"
+
+### mac directories
+datafolder = "/Volumes/Data/ABCD/ABCD4/ABCD4SQL/"
+scriptfold = "/Volumes/Data/Yue script/"
+NDAfold = "/Volumes/Data/ABCD/ABCD4/ABCDStudyNDA/"
+utilFold = "/Volumes/Data/ABCD/ABCD3/Analysis/utilFunc/"
+studyNDAFold = "/Volumes/Data/ABCD/ABCD4/ABCDStudyNDA/"
+outputfolder = "/Volumes/Data/ABCD/ABCD4/ABCD4_precessed_data/"
+featurefolder = "/Volumes/Data/ABCD/ABCD4/Analysis/ManipulatedData/"
+nesi_folder <- "/Volumes/sci-psy-narun/Nesi/Yue/"
+datafolder_5.1 = '/Volumes/sci-psy-narun/abcd-data-release-5.1/core/'
+commonfolder = "/Volumes/sci-psy-narun/Yue/Common_psy_ses_brain_gene_5.1/"
+
+
+source(paste0(scriptfold,"stacking_gfactor_modelling/r_functions_5.1.R"))
+
+
+```
+
+# Plots for Neuroimaging
+
+
+```{r}
+plotting_names <- readxl::read_excel(paste0(commonfolder,"CommonalityPlotingNames.xlsx"))
+
+
+name_with_space <-  c("DTI","rsfMRI cortical FC","T2 summations","T1 summations","T2 normalised intensity","T2 gray matter \navg intensity","T2 white matter \navg intensity","T1 normalised \nintensity","T1 gray matter \navg intensity","T1 white matter \navg intensity","sulcal depth","cortical volumne","cortical area","cortical thickness","subcortical \nvolumne","T2 subcortical \navg intensity","T1 subcortical \navg intensity","rsfMRI temporal \nvariance","SST Incorrect Go \nvs Incorrect Stop","SST Incorrect Go \nvs Correct Go","SST Correct Stop \nvs Incorrect Stop","SST Any Stop \nvs Correct Go","SST Incorrect Stop \nvs Correct Go","SST Correct Stop \nvs Correct Go","SST Correct Go \nvs Fixation","MID Large Loss vs \nSmall Loss anticipation","MID Smal Loss vs \nNeutral anticipation","MID Large Loss vs \nNeutral anticipation","MID Large Reward vs \nSmall Reward anticipation","MID Small Reward vs \nNeutral anticipation","MID Large Reward vs \nNeutral anticipation","MID Postive vs Negative \nPunishment Feedback","MID Postive vs Negative \nReward Feedback","MID Loss vs \nNeutral anticipation","MID Reward vs \nNeutral anticipation","ENback Positive \nvs Neutral Face","ENback Negative \nvs Neutral Face","ENback Face \nvs Place","ENback Emotion \nvs Neutral Face","ENback 2back \nvs 0back","ENback emotion","ENback place","ENback 2back","ENback 0back","rsfMRI \nsubcortical-network FC") 
+
+plotting_names <-plotting_names %>% mutate(plotting_name_space = name_with_space)
+```
+
+
+## Loading all data sets of the neuroimaging
+
+```{r}
+
+neu_data_all <- list.files(path = "/Volumes/sci-psy-narun/Yue/ABCD_5.1_data_precessing/processed_data/RDS", 
+                       pattern = ".RDS$", full.names = TRUE)
+
+neu_data_list <- map(neu_data_all, readRDS)
+
+### get the names for neuro data
+
+neu_names_all <- str_remove_all(neu_data_all,"^/Volumes/sci-psy-narun/Yue/ABCD_5.1_data_precessing/processed_data/RDS/") %>% 
+                 str_remove_all(".RDS$")
+
+names(neu_data_list) <- neu_names_all
+acspsw03_select <- neu_data_list[["acspsw03_select"]] %>% filter(SITE_ID_L != "site22")
+
+site_char <- unique(acspsw03_select$SITE_ID_L) %>% purrr::set_names()
+
+
+```
+
+## Task-fmri
+
+```{r}
+
+get_num_drop_na <- function(data_input = nback_data_list[[1]], 
+                            event_input = "baseline_year_1_arm_1" ){
+  output_table <- data_input %>% filter(EVENTNAME == event_input) %>%  drop_na() 
+  output_num <- nrow(output_table)
+  return(list(output_table = output_table, output_num=output_num))
+}
+
+
+get_num_iqr <- function(data_input = nback_baseline_nona_vis_table[[1]]){
+  data_filtered <- data_input 
+  features <- data_filtered %>% select(-all_of(c("SRC_SUBJECT_ID","SITE_ID_L","EVENTNAME" ))) %>% colnames()
+  iqr_by_site <- site_char %>% map(.,~filter(data_filtered,SITE_ID_L == . ) %>%
+                                     IQR_remove_vec(., x= features)) %>% do.call(rbind,.)
+  return(list(output_tibble = iqr_by_site, output_number = nrow(iqr_by_site)))
+}
+
+```
+
+```{r}
+nback_contrasts <- c("X0back_ROI_","X2back_ROI_","X2backvs0back_ROI_","emotion_ROI_",
+                                              "emotionvsneutface_ROI_","facevsplace_ROI_","negfacevsneutface_ROI_",
+                                              "posfacevsneutface_ROI_","place_ROI_")
+
+
+
+baseline_nback_table <- tibble(Original_name = nback_contrasts,
+                              total = rep(11771,9),
+                              QC = rep(7775,9),
+                              vis = rep(7737,9),
+                              site = rep(7716,9))
+
+
+followup_nback_table <- tibble(Original_name = nback_contrasts,
+                              total = rep(8123,9),
+                              QC = rep(6319,9),
+                              vis = rep(6284,9))
+
+
+nback_data_list <- neu_data_list[nback_contrasts]
+
+
+nback_baseline_nona_vis <- map(nback_data_list, ~get_num_drop_na(data_input = ., 
+                            event_input = "baseline_year_1_arm_1" ))
+
+nback_baseline_nona_vis_num <- map(nback_baseline_nona_vis,"output_num")%>% do.call(rbind,.) %>% as.double()
+nback_baseline_nona_vis_table <- map(nback_baseline_nona_vis,"output_table")
+
+
+nback_baseline_iqr <- map(nback_baseline_nona_vis_table,~get_num_iqr(data_input = .))
+nback_baseline_iqr_num <- map(nback_baseline_iqr,"output_number") %>% do.call(rbind,.) %>% as.double()
+
+
+baseline_nback_table<- baseline_nback_table %>%  
+                       mutate(na_vis = nback_baseline_nona_vis_num) %>% 
+                       mutate(iqr = nback_baseline_iqr_num) %>% 
+                       left_join(plotting_names, by =  "Original_name")
+
+```
+
+
+
+```{r}
+
+flow_char_baseline <- function(data_input = baseline_nback_table, 
+                               names_input = nback_contrasts[1]){
+  row_select <- data_input %>%  filter(Original_name == names_input)
+  plot_output <- flow_exclusions(
+  incl_counts = c(row_select$total, row_select$QC, row_select$vis,row_select$site,row_select$na_vis, row_select$iqr),
+  total_label = row_select$plotting_name_space,
+  incl_labels = c("Passed Quality Control", "No Vision Problem","Not in site22","No Data Missing", "Passed IQR"),
+  excl_labels = c("Failed Quality Control", "Vision Problem","In Site22", "Drop missing data", "IQR"))
+  return(plot_output)
+}
+
+
+flow_char_followup <- function(data_input = baseline_nback_table, 
+                               names_input = nback_contrasts[1]){
+  row_select <- data_input %>%  filter(Original_name == names_input)
+  plot_output <- flow_exclusions(
+  incl_counts = c(row_select$total, row_select$QC, row_select$vis,row_select$na_vis, row_select$iqr),
+  total_label = row_select$plotting_name_space,
+  incl_labels = c("Passed Quality Control", "No Vision Problem","No Data Missing", "Passed IQR"),
+  excl_labels = c("Failed Quality Control", "Vision Problem", "Drop missing data", "IQR"))
+  return(plot_output)
+}
+
+```
+
+
+
+```{r}
+map(nback_contrasts,~flow_char_baseline(data_input = baseline_nback_table, 
+                               names_input = .))
+
+
+```
+
+```{r}
+nback_followup_nona_vis <- map(nback_data_list, ~get_num_drop_na(data_input = ., 
+                            event_input = "2_year_follow_up_y_arm_1" ))
+
+nback_followup_nona_vis_num <- map(nback_followup_nona_vis,"output_num")%>% do.call(rbind,.) %>% as.double()
+nback_followup_nona_vis_table <- map(nback_followup_nona_vis,"output_table")
+
+
+nback_followup_iqr <- map(nback_followup_nona_vis_table,~get_num_iqr(data_input = .))
+nback_followup_iqr_num <- map(nback_followup_iqr,"output_number") %>% do.call(rbind,.) %>% as.double()
+
+
+followup_nback_table<- followup_nback_table %>%  
+                       mutate(na_vis = nback_followup_nona_vis_num) %>% 
+                       mutate(iqr = nback_followup_iqr_num) %>% 
+                       left_join(plotting_names, by =  "Original_name")
+```
+
+
+```{r}
+map(nback_contrasts,~flow_char_followup(data_input = followup_nback_table, 
+                               names_input = .))
+
+
+```
+
+## MID
+
+
+
+```{r}
+MID_contrasts <- c("antiRewVsNeu_ROI_","antiLosVsNeu_ROI_" ,"feedRewPosVsNeg_ROI_","feedPunPosVsNeg_ROI_","antiLargeRewVsNeu_ROI_",
+                     "antiSmallRewVsNeu_ROI_","antiLargeRewVsSmallRew_ROI_","antiLargeLossVsNeu_ROI_",
+                     "antiSmallLossVsNeu_ROI_","antiLargeLossVsSmallLoss_ROI_")
+
+
+
+baseline_MID_table <- tibble(Original_name = MID_contrasts,
+                              total = rep(11771,length(MID_contrasts)),
+                              QC = rep(9175,length(MID_contrasts)),
+                              vis = rep(9124,length(MID_contrasts)),
+                              site = rep(9102,length(MID_contrasts)))
+
+
+followup_MID_table <- tibble(Original_name = MID_contrasts,
+                              total = rep(8123,length(MID_contrasts)),
+                              QC = rep(6744,length(MID_contrasts)),
+                              vis = rep(6704,length(MID_contrasts)))
+
+
+MID_data_list <- neu_data_list[MID_contrasts]
+
+
+MID_baseline_nona_vis <- map(MID_data_list, ~get_num_drop_na(data_input = ., 
+                            event_input = "baseline_year_1_arm_1" ))
+
+MID_baseline_nona_vis_num <- map(MID_baseline_nona_vis,"output_num")%>% do.call(rbind,.) %>% as.double()
+MID_baseline_nona_vis_table <- map(MID_baseline_nona_vis,"output_table")
+
+
+MID_baseline_iqr <- map(MID_baseline_nona_vis_table,~get_num_iqr(data_input = .))
+MID_baseline_iqr_num <- map(MID_baseline_iqr,"output_number") %>% do.call(rbind,.) %>% as.double()
+
+
+baseline_MID_table<- baseline_MID_table %>%  
+                       mutate(na_vis = MID_baseline_nona_vis_num) %>% 
+                       mutate(iqr = MID_baseline_iqr_num) %>% 
+                       left_join(plotting_names, by =  "Original_name")
+
+```
+
+
+```{r}
+map(MID_contrasts,~flow_char_baseline(data_input = baseline_MID_table, 
+                               names_input = .))
+
+
+```
+
+
+```{r}
+MID_followup_nona_vis <- map(MID_data_list, ~get_num_drop_na(data_input = ., 
+                            event_input = "2_year_follow_up_y_arm_1" ))
+
+MID_followup_nona_vis_num <- map(MID_followup_nona_vis,"output_num")%>% do.call(rbind,.) %>% as.double()
+MID_followup_nona_vis_table <- map(MID_followup_nona_vis,"output_table")
+
+
+MID_followup_iqr <- map(MID_followup_nona_vis_table,~get_num_iqr(data_input = .))
+MID_followup_iqr_num <- map(MID_followup_iqr,"output_number") %>% do.call(rbind,.) %>% as.double()
+
+
+followup_MID_table<- followup_MID_table %>%  
+                       mutate(na_vis = MID_followup_nona_vis_num) %>% 
+                       mutate(iqr = MID_followup_iqr_num) %>% 
+                       left_join(plotting_names, by =  "Original_name")
+```
+
+
+```{r}
+map(MID_contrasts,~flow_char_followup(data_input = followup_MID_table, 
+                               names_input = .))
+
+
+```
+
+
+
+## SST
+
+
+```{r}
+SST_contrasts <- c("anystopvscorrectgo_ROI_" , "correctgovsfixation_ROI_","correctstopvscorrectgo_ROI_",
+                   "correctstopvsincorrectstop_ROI_","incorrectgovscorrectgo_ROI_","incorrectgovsincorrectstop_ROI_",
+                   "incorrectstopvscorrectgo_ROI_")
+
+
+
+baseline_SST_table <- tibble(Original_name = SST_contrasts,
+                              total = rep(11771,length(SST_contrasts)),
+                              QC = rep(8099,length(SST_contrasts)),
+                              vis = rep(8054,length(SST_contrasts)),
+                              site = rep(8034,length(SST_contrasts)))
+
+
+followup_SST_table <- tibble(Original_name = SST_contrasts,
+                              total = rep(8123,length(SST_contrasts)),
+                              QC = rep(6087,length(SST_contrasts)),
+                              vis = rep(6054,length(SST_contrasts)))
+
+
+SST_data_list <- neu_data_list[SST_contrasts]
+
+
+SST_baseline_nona_vis <- map(SST_data_list, ~get_num_drop_na(data_input = ., 
+                            event_input = "baseline_year_1_arm_1" ))
+
+SST_baseline_nona_vis_num <- map(SST_baseline_nona_vis,"output_num")%>% do.call(rbind,.) %>% as.double()
+SST_baseline_nona_vis_table <- map(SST_baseline_nona_vis,"output_table")
+
+
+SST_baseline_iqr <- map(SST_baseline_nona_vis_table,~get_num_iqr(data_input = .))
+SST_baseline_iqr_num <- map(SST_baseline_iqr,"output_number") %>% do.call(rbind,.) %>% as.double()
+
+
+baseline_SST_table<- baseline_SST_table %>%  
+                       mutate(na_vis = SST_baseline_nona_vis_num) %>% 
+                       mutate(iqr = SST_baseline_iqr_num) %>% 
+                       left_join(plotting_names, by =  "Original_name")
+
+```
+
+
+```{r}
+map(SST_contrasts,~flow_char_baseline(data_input = baseline_SST_table, 
+                               names_input = .))
+
+
+```
+
+
+```{r}
+SST_followup_nona_vis <- map(SST_data_list, ~get_num_drop_na(data_input = ., 
+                            event_input = "2_year_follow_up_y_arm_1" ))
+
+SST_followup_nona_vis_num <- map(SST_followup_nona_vis,"output_num")%>% do.call(rbind,.) %>% as.double()
+SST_followup_nona_vis_table <- map(SST_followup_nona_vis,"output_table")
+
+
+SST_followup_iqr <- map(SST_followup_nona_vis_table,~get_num_iqr(data_input = .))
+SST_followup_iqr_num <- map(SST_followup_iqr,"output_number") %>% do.call(rbind,.) %>% as.double()
+
+
+followup_SST_table<- followup_SST_table %>%  
+                       mutate(na_vis = SST_followup_nona_vis_num) %>% 
+                       mutate(iqr = SST_followup_iqr_num) %>% 
+                       left_join(plotting_names, by =  "Original_name")
+```
+
+
+```{r}
+map(SST_contrasts,~flow_char_followup(data_input = followup_SST_table, 
+                               names_input = .))
+
+
+```
+
+## Rsmri
+
+
+```{r}
+rsmri_contrasts <- c("rsmri_gordon_aseg_data","rsmri_subnet","rsmri_within_avg_data")
+
+
+baseline_rsmri_table <- tibble(Original_name = rsmri_contrasts,
+                              total = rep(11771,length(rsmri_contrasts)),
+                              QC = rep(9374,length(rsmri_contrasts)),
+                              vis = rep(9312,length(rsmri_contrasts)),
+                              site = rep(9287,length(rsmri_contrasts)))
+
+
+followup_rsmri_table <- tibble(Original_name = rsmri_contrasts,
+                              total = rep(8123,length(rsmri_contrasts)),
+                              QC = rep(6971,length(rsmri_contrasts)),
+                              vis = rep(6922,length(rsmri_contrasts)))
+
+
+rsmri_data_list <- neu_data_list[rsmri_contrasts]
+
+
+rsmri_baseline_nona_vis <- map(rsmri_data_list, ~get_num_drop_na(data_input = ., 
+                            event_input = "baseline_year_1_arm_1" ))
+
+rsmri_baseline_nona_vis_num <- map(rsmri_baseline_nona_vis,"output_num")%>% do.call(rbind,.) %>% as.double()
+rsmri_baseline_nona_vis_table <- map(rsmri_baseline_nona_vis,"output_table")
+
+
+rsmri_baseline_iqr <- map(rsmri_baseline_nona_vis_table,~get_num_iqr(data_input = .))
+rsmri_baseline_iqr_num <- map(rsmri_baseline_iqr,"output_number") %>% do.call(rbind,.) %>% as.double()
+
+
+baseline_rsmri_table<- baseline_rsmri_table %>%  
+                       mutate(na_vis = rsmri_baseline_nona_vis_num) %>% 
+                       mutate(iqr = rsmri_baseline_iqr_num) %>% 
+                       left_join(plotting_names, by =  "Original_name")
+
+```
+
+
+```{r}
+map(rsmri_contrasts,~flow_char_baseline(data_input = baseline_rsmri_table, 
+                               names_input = .))
+
+
+```
+
+
+```{r}
+rsmri_followup_nona_vis <- map(rsmri_data_list, ~get_num_drop_na(data_input = ., 
+                            event_input = "2_year_follow_up_y_arm_1" ))
+
+rsmri_followup_nona_vis_num <- map(rsmri_followup_nona_vis,"output_num")%>% do.call(rbind,.) %>% as.double()
+rsmri_followup_nona_vis_table <- map(rsmri_followup_nona_vis,"output_table")
+
+
+rsmri_followup_iqr <- map(rsmri_followup_nona_vis_table,~get_num_iqr(data_input = .))
+rsmri_followup_iqr_num <- map(rsmri_followup_iqr,"output_number") %>% do.call(rbind,.) %>% as.double()
+
+
+followup_rsmri_table<- followup_rsmri_table %>%  
+                       mutate(na_vis = rsmri_followup_nona_vis_num) %>% 
+                       mutate(iqr = rsmri_followup_iqr_num) %>% 
+                       left_join(plotting_names, by =  "Original_name")
+```
+
+
+```{r}
+map(rsmri_contrasts,~flow_char_followup(data_input = followup_rsmri_table, 
+                               names_input = .))
+
+
+```
+
+## Smri T1
+
+
+```{r}
+smri_t1_contrasts <- c("Avg_T1_ASEG_Vol_","Avg_T1_White_",      "Avg_T1_Gray_","Normalised_T1_","smri_T1_mean_total_data","Dest_Thick_","Dest_Area_","Dest_Vol_","Vol_ASEG_","Dest_Sulcal_Depth_")
+
+ 
+
+baseline_smri_t1_table <- tibble(Original_name = smri_t1_contrasts,
+                              total = rep(11771,length(smri_t1_contrasts)),
+                              QC = rep(11270,length(smri_t1_contrasts)),
+                              vis = rep(11204,length(smri_t1_contrasts)),
+                              site = rep(11177,length(smri_t1_contrasts)))
+
+
+followup_smri_t1_table <- tibble(Original_name = smri_t1_contrasts,
+                              total = rep(8123,length(smri_t1_contrasts)),
+                              QC = rep(7896,length(smri_t1_contrasts)),
+                              vis = rep(7845,length(smri_t1_contrasts)))
+
+
+smri_t1_data_list <- neu_data_list[smri_t1_contrasts]
+
+
+smri_t1_baseline_nona_vis <- map(smri_t1_data_list, ~get_num_drop_na(data_input = ., 
+                            event_input = "baseline_year_1_arm_1" ))
+
+smri_t1_baseline_nona_vis_num <- map(smri_t1_baseline_nona_vis,"output_num")%>% do.call(rbind,.) %>% as.double()
+smri_t1_baseline_nona_vis_table <- map(smri_t1_baseline_nona_vis,"output_table")
+
+
+smri_t1_baseline_iqr <- map(smri_t1_baseline_nona_vis_table,~get_num_iqr(data_input = .))
+smri_t1_baseline_iqr_num <- map(smri_t1_baseline_iqr,"output_number") %>% do.call(rbind,.) %>% as.double()
+
+
+baseline_smri_t1_table<- baseline_smri_t1_table %>%  
+                       mutate(na_vis = smri_t1_baseline_nona_vis_num) %>% 
+                       mutate(iqr = smri_t1_baseline_iqr_num) %>% 
+                       left_join(plotting_names, by =  "Original_name")
+
+```
+
+
+```{r}
+map(smri_t1_contrasts,~flow_char_baseline(data_input = baseline_smri_t1_table, 
+                               names_input = .))
+
+
+```
+
+
+```{r}
+smri_t1_followup_nona_vis <- map(smri_t1_data_list, ~get_num_drop_na(data_input = ., 
+                            event_input = "2_year_follow_up_y_arm_1" ))
+
+smri_t1_followup_nona_vis_num <- map(smri_t1_followup_nona_vis,"output_num")%>% do.call(rbind,.) %>% as.double()
+smri_t1_followup_nona_vis_table <- map(smri_t1_followup_nona_vis,"output_table")
+
+
+smri_t1_followup_iqr <- map(smri_t1_followup_nona_vis_table,~get_num_iqr(data_input = .))
+smri_t1_followup_iqr_num <- map(smri_t1_followup_iqr,"output_number") %>% do.call(rbind,.) %>% as.double()
+
+
+followup_smri_t1_table<- followup_smri_t1_table %>%  
+                       mutate(na_vis = smri_t1_followup_nona_vis_num) %>% 
+                       mutate(iqr = smri_t1_followup_iqr_num) %>% 
+                       left_join(plotting_names, by =  "Original_name")
+```
+
+
+```{r}
+map(smri_t1_contrasts,~flow_char_followup(data_input = followup_smri_t1_table, 
+                               names_input = .))
+
+
+```
+## Smri T2
+
+```{r}
+smri_t2_contrasts <- c("Avg_T2_ASEG_","Avg_T2_White_","Avg_T2_Gray_","Normalised_T2_","smri_T2_mean_total_data")
+
+
+
+baseline_smri_t2_table <- tibble(Original_name = smri_t2_contrasts,
+                              total = rep(11771,length(smri_t2_contrasts)),
+                              QC = rep(10554,length(smri_t2_contrasts)),
+                              vis = rep(10496,length(smri_t2_contrasts)),
+                              site = rep(10471,length(smri_t2_contrasts)))
+
+
+followup_smri_t2_table <- tibble(Original_name = smri_t2_contrasts,
+                              total = rep(8123,length(smri_t2_contrasts)),
+                              QC = rep(7523,length(smri_t2_contrasts)),
+                              vis = rep(7473,length(smri_t2_contrasts)))
+
+
+smri_t2_data_list <- neu_data_list[smri_t2_contrasts]
+
+
+smri_t2_baseline_nona_vis <- map(smri_t2_data_list, ~get_num_drop_na(data_input = ., 
+                            event_input = "baseline_year_1_arm_1" ))
+
+smri_t2_baseline_nona_vis_num <- map(smri_t2_baseline_nona_vis,"output_num")%>% do.call(rbind,.) %>% as.double()
+smri_t2_baseline_nona_vis_table <- map(smri_t2_baseline_nona_vis,"output_table")
+
+
+smri_t2_baseline_iqr <- map(smri_t2_baseline_nona_vis_table,~get_num_iqr(data_input = .))
+smri_t2_baseline_iqr_num <- map(smri_t2_baseline_iqr,"output_number") %>% do.call(rbind,.) %>% as.double()
+
+
+baseline_smri_t2_table<- baseline_smri_t2_table %>%  
+                       mutate(na_vis = smri_t2_baseline_nona_vis_num) %>% 
+                       mutate(iqr = smri_t2_baseline_iqr_num) %>% 
+                       left_join(plotting_names, by =  "Original_name")
+
+```
+
+
+```{r}
+map(smri_t2_contrasts,~flow_char_baseline(data_input = baseline_smri_t2_table, 
+                               names_input = .))
+
+
+```
+
+
+```{r}
+smri_t2_followup_nona_vis <- map(smri_t2_data_list, ~get_num_drop_na(data_input = ., 
+                            event_input = "2_year_follow_up_y_arm_1" ))
+
+smri_t2_followup_nona_vis_num <- map(smri_t2_followup_nona_vis,"output_num")%>% do.call(rbind,.) %>% as.double()
+smri_t2_followup_nona_vis_table <- map(smri_t2_followup_nona_vis,"output_table")
+
+
+smri_t2_followup_iqr <- map(smri_t2_followup_nona_vis_table,~get_num_iqr(data_input = .))
+smri_t2_followup_iqr_num <- map(smri_t2_followup_iqr,"output_number") %>% do.call(rbind,.) %>% as.double()
+
+
+followup_smri_t2_table<- followup_smri_t2_table %>%  
+                       mutate(na_vis = smri_t2_followup_nona_vis_num) %>% 
+                       mutate(iqr = smri_t2_followup_iqr_num) %>% 
+                       left_join(plotting_names, by =  "Original_name")
+```
+
+
+```{r}
+map(smri_t2_contrasts,~flow_char_followup(data_input = followup_smri_t2_table, 
+                               names_input = .))
+
+
+```
+
+
+## Smri T2
+
+```{r}
+DTI_contrasts <- c("DTI_data")
+
+
+
+baseline_DTI_table <- tibble(Original_name = DTI_contrasts,
+                              total = rep(11771,length(DTI_contrasts)),
+                              QC = rep(10194,length(DTI_contrasts)),
+                              vis = rep(10137,length(DTI_contrasts)),
+                              site = rep(10124,length(DTI_contrasts)))
+
+
+followup_DTI_table <- tibble(Original_name = DTI_contrasts,
+                              total = rep(8123,length(DTI_contrasts)),
+                              QC = rep(7485,length(DTI_contrasts)),
+                              vis = rep(7438,length(DTI_contrasts)))
+
+
+DTI_data_list <- neu_data_list[DTI_contrasts]
+
+
+DTI_baseline_nona_vis <- map(DTI_data_list, ~get_num_drop_na(data_input = ., 
+                            event_input = "baseline_year_1_arm_1" ))
+
+DTI_baseline_nona_vis_num <- map(DTI_baseline_nona_vis,"output_num")%>% do.call(rbind,.) %>% as.double()
+DTI_baseline_nona_vis_table <- map(DTI_baseline_nona_vis,"output_table")
+
+
+DTI_baseline_iqr <- map(DTI_baseline_nona_vis_table,~get_num_iqr(data_input = .))
+DTI_baseline_iqr_num <- map(DTI_baseline_iqr,"output_number") %>% do.call(rbind,.) %>% as.double()
+
+
+baseline_DTI_table<- baseline_DTI_table %>%  
+                       mutate(na_vis = DTI_baseline_nona_vis_num) %>% 
+                       mutate(iqr = DTI_baseline_iqr_num) %>% 
+                       left_join(plotting_names, by =  "Original_name")
+
+```
+
+
+```{r}
+map(DTI_contrasts,~flow_char_baseline(data_input = baseline_DTI_table, 
+                               names_input = .))
+
+
+```
+
+
+
+```{r}
+DTI_followup_nona_vis <- map(DTI_data_list, ~get_num_drop_na(data_input = ., 
+                            event_input = "2_year_follow_up_y_arm_1" ))
+
+DTI_followup_nona_vis_num <- map(DTI_followup_nona_vis,"output_num")%>% do.call(rbind,.) %>% as.double()
+DTI_followup_nona_vis_table <- map(DTI_followup_nona_vis,"output_table")
+
+
+DTI_followup_iqr <- map(DTI_followup_nona_vis_table,~get_num_iqr(data_input = .))
+DTI_followup_iqr_num <- map(DTI_followup_iqr,"output_number") %>% do.call(rbind,.) %>% as.double()
+
+
+followup_DTI_table<- followup_DTI_table %>%  
+                       mutate(na_vis = DTI_followup_nona_vis_num) %>% 
+                       mutate(iqr = DTI_followup_iqr_num) %>% 
+                       left_join(plotting_names, by =  "Original_name")
+```
+
+
+```{r}
+map(DTI_contrasts,~flow_char_followup(data_input = followup_DTI_table, 
+                               names_input = .))
+
+
+```
+
+
+## Create table for the neuroimaging features
+
+```{r,results='asis'}
+
+baseline_neuro_table <- bind_rows(baseline_nback_table,baseline_MID_table,
+                                  baseline_SST_table,baseline_rsmri_table,
+                                  baseline_smri_t1_table,baseline_smri_t2_table,
+                                  baseline_DTI_table) %>% 
+                        mutate(drop_QC = total - QC) %>% 
+                        mutate(drop_vision = QC - vis) %>% 
+                       mutate(drop_site = vis-site) %>%
+                       mutate(drop_missing = site - na_vis) %>%  
+                        mutate(drop_iqr = na_vis - iqr)
+
+
+baseline_neuro_keep <- baseline_neuro_table %>% select("plotting_name","total","QC", "vis","site","na_vis","iqr" ) 
+                     # # %>% 
+                     #   rename(  Neuroimaging_features = plotting_name,
+                     #          participants_scanned = total,
+                     #          quality_control = QC,
+                     #          NA_vision_problem = na_vis ,
+                     #          Outlier= iqr)
+
+neuro_keep_names <- c( "Neuroimaging Features","Data Provided","Quality Control","Vision Problem","Site22","Missing","Outliers")
+
+names(baseline_neuro_keep) <- neuro_keep_names
+
+
+baseline_neuro_keep%>% 
+    kableExtra::kbl(caption = "Number of observations kept after each data cleaning steps") %>%
+    kableExtra::kable_classic(full_width = F, 
+                             html_font = "Cambria")
+
+baseline_neuro_drop <- baseline_neuro_table %>% select("plotting_name","total","drop_QC",
+                                                       "drop_vision", "drop_site","drop_missing"  ,"drop_iqr" ,"iqr" ) 
+# %>% 
+#                        rename(Neuroimaging_features = plotting_name,
+#                               participants_scanned = total,
+#                               dropped_quality_control = drop_QC,
+#                               dropped_NA_vision_problem = drop_na_vision ,
+#                               Dropped_Outlier= drop_iqr,
+#                               Observation_kept = iqr)
+
+
+neuro_drop_names <- c( "Neuroimaging Features","Data Provided","Not Pass Quality Control", "Had Vision Problems","Drop Site 22","Remove Missing Data","Remove Outliers", "Observation Kept")
+
+names(baseline_neuro_drop) <- neuro_drop_names
+
+
+baseline_neuro_drop%>% 
+    kableExtra::kbl(caption = "Number of observations dropped after each data cleaning steps") %>%
+    kableExtra::kable_classic(full_width = F, 
+                             html_font = "Cambria")
+
+
+
+
+
+followup_neuro_table <- bind_rows(followup_nback_table,followup_MID_table ,followup_SST_table,
+                                  followup_rsmri_table,followup_smri_t1_table,followup_smri_t2_table,followup_DTI_table) %>% 
+                        mutate(drop_QC = total - QC) %>% 
+                        mutate(drop_vision = QC - vis) %>% 
+                       mutate(drop_missing = vis - na_vis) %>%  
+                        mutate(drop_iqr = na_vis - iqr)
+
+
+followup_neuro_keep <- followup_neuro_table %>% select("plotting_name","total","QC", "vis","na_vis","iqr" ) 
+                     # # %>% 
+                     #   rename(  Neuroimaging_features = plotting_name,
+                     #          participants_scanned = total,
+                     #          quality_control = QC,
+                     #          NA_vision_problem = na_vis ,
+                     #          Outlier= iqr)
+
+neuro_keep_names_followup <- c( "Neuroimaging Features","Data Provided","Quality Control","Vision Problem","Missing","Outliers")
+
+names(followup_neuro_keep) <- neuro_keep_names_followup
+
+
+followup_neuro_keep%>% 
+    kableExtra::kbl(caption = "Number of observations kept after each data cleaning steps") %>%
+    kableExtra::kable_classic(full_width = F, 
+                             html_font = "Cambria")
+
+followup_neuro_drop <- followup_neuro_table %>% select("plotting_name","total","drop_QC",
+                                                       "drop_vision", "drop_missing"  ,"drop_iqr" ,"iqr" ) 
+# %>% 
+#                        rename(Neuroimaging_features = plotting_name,
+#                               participants_scanned = total,
+#                               dropped_quality_control = drop_QC,
+#                               dropped_NA_vision_problem = drop_na_vision ,
+#                               Dropped_Outlier= drop_iqr,
+#                               Observation_kept = iqr)
+
+
+neuro_drop_names_followup <- c( "Neuroimaging Features","Data Provided","Not Pass Quality Control", "Had Vision Problems","Remove Missing Data","Remove Outliers", "Observation Kept")
+
+names(followup_neuro_drop) <- neuro_drop_names_followup
+
+
+followup_neuro_drop%>% 
+    kableExtra::kbl(caption = "Number of observations dropped after each data cleaning steps") %>%
+    kableExtra::kable_classic(full_width = F, 
+                             html_font = "Cambria")
+ 
+
+```
+## gfactor
+
+
+```{r}
+nihtb <- read.csv(paste0(datafolder_5.1, "neurocognition/nc_y_nihtb.csv"), na = c("", "NA", "999", "777"))
+names(nihtb) <-toupper(colnames(nihtb))
+
+ravlt <- read.csv(paste0(datafolder_5.1, "neurocognition/nc_y_ravlt.csv"), na = c("", "NA", "999", "777"))
+names(ravlt) <-toupper(colnames(ravlt))
+
+gfactor_list <- readRDS(paste0(scriptfold,'genetics_psychopathology_common_scan_all_scripts/gfactor_scale_seperate_5.1', '.RData'))
+
+
+enet_baseline_list  <- readRDS(paste0(scriptfold,"stacking_gfactor_modelling/random_forest_data/random_forest_all_baseline_test_5.1.RDS"))
+enet_followup_list <- readRDS(paste0(scriptfold,"stacking_gfactor_modelling/random_forest_data/random_forest_all_followup_test_5.1.RDS"))
+
+enet_baseline_all <- enet_baseline_list %>% do.call(rbind,.) %>% drop_na(EVENTNAME)
+
+enet_followup_all <- enet_followup_list %>% do.call(rbind,.) %>% drop_na(EVENTNAME)
+
+sumCog <- plyr::join_all(list(nihtb, ravlt), 
+               by=c('SRC_SUBJECT_ID','EVENTNAME'), type='full') %>%
+  select(SRC_SUBJECT_ID,EVENTNAME,
+         NIHTBX_FLANKER_UNCORRECTED, NIHTBX_CARDSORT_UNCORRECTED, NIHTBX_PATTERN_UNCORRECTED, 
+         NIHTBX_PICVOCAB_UNCORRECTED, NIHTBX_READING_UNCORRECTED, NIHTBX_PICTURE_UNCORRECTED,
+         PEA_RAVLT_LD_TRIAL_VII_TC, NIHTBX_LIST_UNCORRECTED,
+         NIHTBX_FLUIDCOMP_UNCORRECTED, NIHTBX_CRYST_UNCORRECTED, NIHTBX_TOTALCOMP_UNCORRECTED)
+
+gfactor_baseline_test <- map(gfactor_list,"output_test_baseline") %>% do.call(rbind,.)
+gfactor_followup_test <- map(gfactor_list,"output_test_followup") %>% do.call(rbind,.)
+
+
+baseline_sumcog <- sumCog %>% filter(EVENTNAME == "baseline_year_1_arm_1")
+followup_sumcog <- sumCog %>% filter(EVENTNAME == "2_year_follow_up_y_arm_1")
+
+
+
+cog_plot_baseline <- flow_exclusions(
+  incl_counts = c(nrow(baseline_sumcog),11830,11762, nrow(gfactor_baseline_test),nrow(enet_baseline_all)),
+  total_label = "Cognitive Abilities",
+  incl_labels = c("Selected Sites","Had no Vision Problems","Had all Cognitive Tasks","Had Neuroimaging Features"),
+  excl_labels = c("In Site 22","Had Vision Problems","Missing Certain \nCognitive Tasks", "Had no \nNeuroimaging Features")
+)
+cog_plot_baseline
+cog_plot_followup <-flow_exclusions(
+  incl_counts = c(10840,10775,nrow(gfactor_followup_test),nrow(enet_followup_all)),
+  total_label = "Cognitive Abilities",
+  incl_labels = c("Had no Vision Problems","Had all Cognitive Tasks","Had Neuroimaging Features"),
+  excl_labels = c("Had Vision Problems","Missing Certain \nCognitive Tasks", "Had no \nNeuroimaging Features")
+)
+cog_plot_followup
+
+#PRISMA_save(cog_plot_baseline, filename = "/Users/wanyu368/Documents/cog_plot_baseline.SVG",overwrite = TRUE)
+
+#PRISMA_save(  cog_plot_followup, filename = "/Users/wanyu368/Documents/cog_plot_followup.SVG",overwrite = TRUE)
+```
+
+## mental health
+
+
+```{r}
+
+mental_pred <- readRDS(paste0(scriptfold,'Common_psy_gene_brain_all/saved_outputs/psychopathology_pls_pred_no_asr_5.1', '.RData'))
+
+
+mental_baseline <- mental_pred[["baseline_test_pred"]] %>% do.call(rbind,.)
+
+mental_followup <- mental_pred[["followup_test_pred"]] %>% do.call(rbind,.)
+
+
+
+mental_plot_baseline <- flow_exclusions(
+  incl_counts = c(11868,11799,11762, nrow(mental_baseline)),
+  total_label = "Mental Health",
+  incl_labels = c("Had no Vision Problems","Selected Sites","Observations Kept"),
+  excl_labels = c("Had Vision Problems","From Site 22 or \nMissing Site Information","Remove Missing Data")
+)
+mental_plot_baseline
+mental_plot_followup <-flow_exclusions(
+  incl_counts = c(10973,10907,10840, nrow(mental_followup)),
+  total_label = "Mental Health",
+  incl_labels = c("Had no Vision Problem","Selected Sites","Observations Kept"),
+  excl_labels = c("Had Vision Problems","From Site 22 or \nMissing Site Information","Remove Missing Data")
+)
+mental_plot_followup
+
+
+# PRISMA_save( mental_plot_baseline,filename = "/Users/wanyu368/Documents/mental_plot_baseline.SVG",overwrite = TRUE)
+# 
+# 
+# PRISMA_save(mental_plot_followup,filename = "/Users/wanyu368/Documents/mental_plot_followup.SVG",overwrite = TRUE)
+```
+
+
+
+## social 
+
+```{r}
+
+processed_features_gfactor_ses_list <- readRDS(paste0(scriptfold,'Common_psy_gene_brain_all/saved_outputs/processed_features_gfactor_ses_list_5.1', '.RData'))
+
+ses_data <- processed_features_gfactor_ses_list[[1]]
+
+ses_baseline <-  bind_rows(ses_data[["output_train_baseline"]],ses_data[["output_test_baseline"]])
+
+ses_followup <-  bind_rows(ses_data[["output_train_followup"]],ses_data[["output_test_followup"]])
+
+
+
+ses_plot_baseline <- flow_exclusions(
+  incl_counts = c(11876,11807,11762, nrow(ses_baseline)),
+  total_label = "Socio-demographics, \nLifestyles and Developmental Adverse",
+  incl_labels = c("Had no Vision Problems","Selected Sites","Observations Kept"),
+  excl_labels = c("Had Vision Problems","From Site 22 or \nMissing Site Information","Remove Missing Data")
+)
+ses_plot_baseline
+ses_plot_followup <- flow_exclusions(
+  incl_counts = c(10979,10913,10840, nrow(ses_followup)),
+  total_label = "Socio-demographics, \nLifestyles and Developmental Adverse",
+  incl_labels = c("Had no Vision Problems","Selected Sites","Observations Kept"),
+  excl_labels = c("Had Vision Problems","Missing Site Information","Remove Missing Data")
+)
+ses_plot_followup
+
+
+# PRISMA_save(ses_plot_baseline,filename = "/Users/wanyu368/Documents/ses_plot_baseline.SVG",overwrite = TRUE)
+# 
+# 
+# PRISMA_save(ses_plot_followup,filename = "/Users/wanyu368/Documents/ses_plot_followup.SVG",overwrite = TRUE)
+```
+
+## Polygenic scores
+
+```{r}
+
+
+gene_pred <- readRDS(paste0(scriptfold,'genetics_psychopathology_common_scan_all_scripts/psychopathology_cog_gene_pred_residual_5.1', '.RData'))
+
+
+gene_baseline <-  gene_pred[["baseline_test_pred"]] %>% do.call(rbind,.)
+
+gene_followup <-  gene_pred[["followup_test_pred"]]%>% do.call(rbind,.)
+
+
+poly_plot_baseline <- flow_exclusions(
+  incl_counts = c(11868,6014, 5989,5968,nrow(gene_baseline)),
+  total_label = "Polygenic Scores",
+  incl_labels = c("Ancestry Matched","Selected Sites","Had no Vision Problems","Had all Cognitive Tasks"),
+  excl_labels = c("Ancestry not Matched","From Site 22 or \nMissing Site Information","Had Vision Problems","Missing Certain \nCognitvie Tasks")
+)
+poly_plot_baseline
+
+poly_plot_followup <- flow_exclusions(
+  incl_counts = c(10908,6014, 5989,5968,nrow(gene_followup)),
+  total_label = "Polygenic Scores",
+  incl_labels = c("Ancestry Matched","Selected Sites","Had no Vision Problems","Had all Cognitive Tasks"),
+  excl_labels = c("Ancestry not Matched","From Site 22 or \nMissing Site Information","Had Vision Problems","Missing Certain \nCognitive Tasks")
+)
+
+poly_plot_followup
+
+
+
+# PRISMA_save(poly_plot_baseline,filename = "/Users/wanyu368/Documents/poly_plot_baseline.SVG",overwrite = TRUE)
+# 
+# 
+# PRISMA_save(poly_plot_followup,filename = "/Users/wanyu368/Documents/poly_plot_followup.SVG",overwrite = TRUE)
+```
+
+
+
+
+
+## the combined flow chart
+
+
+
+
+```{r}
+
+
+
+#library("RColorBrewer")
+#brewer.pal(9, "Set1")
+
+time <- boxGrob(glue("Baseline"),
+                 x = .1,
+                 y = .9,
+                 just = "center",
+                txt_gp = getOption("boxGrobTxt", default = gpar(color = "white", cex = 1)),
+                box_gp = getOption("boxGrob", default = gpar(fill = "white", color = "white")))
+
+
+total <- boxGrob(glue("Total \n Participants",
+                      "n = {pop}",
+                      pop = txtInt(11868),
+                      .sep = "\n"),
+                 x = .35,
+                 y = .9,
+                 just = "center",
+                 box_gp = gpar(fill="#FF7F00"))
+
+
+neuro <- boxGrob(glue("NeuroImaging",
+                      "n = {pop}",
+                      pop = txtInt(nrow(gfactor_baseline_test)),
+                      .sep = "\n"),
+                 x = .1,
+                 y = .5,
+                 just = "center",
+                 width = 0.15,
+                 height = 0.1,
+                 box_gp = gpar(fill="#4393C3"))
+
+neuro_drop <- boxGrob(glue("Removed NA \n Vision \n Problem",
+                      "n = {pop}",
+                      pop = txtInt(11868-nrow(gfactor_baseline_test)),
+                      .sep = "\n"),
+                 x = .1,
+                 y = .15,
+                 just = "center",
+                 width = 0.15,
+                 height = 0.2,
+                 box_gp = gpar(fill="#D6604D"))
+
+
+mental <- boxGrob(glue("Mental\n  Health",
+                      "n = {pop}",
+                      pop = txtInt(nrow(mental_baseline)),
+                      .sep = "\n"),
+                  x = .27,
+                  y = .5,
+                  just = "center",
+                  width = 0.15,
+                  height = 0.15,
+                  box_gp = gpar(fill="#4393C3"))
+
+mental_drop <- boxGrob(glue("Removed NA \n Vision  \n Problem",
+                       "n = {pop}",
+                       pop = txtInt(11868-nrow(mental_baseline)),
+                       .sep = "\n"),
+                  x = .27,
+                  y = .15,
+                  just = "center",
+                  width = 0.15,
+                  height = 0.2,
+                  box_gp = gpar(fill="#D6604D"))
+
+ses <- boxGrob(glue("Socio-Demo \n Lifestyle Dev",
+                      "n = {pop}",
+                      pop = txtInt(nrow(ses_baseline)),
+                      .sep = "\n"),
+               x = .44,
+               y = .5,
+               just = "center",
+               width = 0.15,
+               height = 0.15,
+               box_gp = gpar(fill="#4393C3"))
+
+
+ses_drop <- boxGrob(glue("Removed NA \n Vision \n Problem",
+                    "n = {pop}",
+                    pop = txtInt(11868-nrow(ses_baseline)),
+                    .sep = "\n"),
+               x = .44,
+               y = .15,
+               just = "center",
+               width = 0.15,
+               height = 0.2,
+               box_gp = gpar(fill="#D6604D"))
+
+
+
+
+
+
+poly <- boxGrob(glue("polygenic \n scores",
+                      "n = {pop}",
+                      pop = txtInt(5989),
+                      .sep = "\n"),
+                x = .61,
+                y = .5,
+                just = "center",
+                width = 0.15,
+                height = 0.15,
+                box_gp = gpar(fill="#92C5DE"))
+
+poly_drop <- boxGrob(glue("Have No \n Polygenic \n scores",
+                     "n = {pop}",
+                     pop = txtInt(11868-5989),
+                     .sep = "\n"),
+                x = .61,
+                y = .15,
+                just = "center",
+                width = 0.15,
+                height = 0.2,
+                box_gp = gpar(fill="#D6604D"))
+
+
+ploy_end <- boxGrob(glue("polygenic \n scores",
+                         "n = {pop}",
+                         pop = txtInt(nrow(gene_baseline)),
+                         .sep = "\n"),
+                    x = .9,
+                    y = .5,
+                    just = "center",
+                    width = 0.15,
+                    height = 0.15,
+                    box_gp = gpar(fill="#4393C3"))
+
+
+poly_drop_na <- boxGrob(glue("Removed NA \n Vision \n Problem",
+                          "n = {pop}",
+                          pop = txtInt(5989-nrow(gene_baseline)),
+                          .sep = "\n"),
+                     x = .9,
+                     y = .15,
+                     just = "center",
+                     width = 0.15,
+                     height = 0.2,
+                     box_gp = gpar(fill="#D6604D"))
+
+connectGrob(total, neuro, lty_gp = gpar(lwd=4, col="black", fill="black"))
+connectGrob(total, mental, lty_gp = gpar(lwd=4, col="black", fill="black"))
+connectGrob(total, ses, lty_gp = gpar(lwd=4, col="black", fill="black"))
+connectGrob(total, poly, lty_gp = gpar(lwd=4, col="black", fill="black"))
+connectGrob(neuro, neuro_drop,"vertical", lty_gp = gpar(lwd=4, col="black", fill="black"))
+connectGrob(mental, mental_drop,"vertical", lty_gp = gpar(lwd=4, col="black", fill="black"))
+connectGrob(ses, ses_drop,"vertical", lty_gp = gpar(lwd=4, col="black", fill="black"))
+connectGrob(poly, poly_drop,"vertical", lty_gp = gpar(lwd=4, col="black", fill="black"))
+connectGrob(poly, ploy_end,"horizontal", lty_gp = gpar(lwd=4, col="black", fill="black"))
+connectGrob(ploy_end, poly_drop_na,"vertical", lty_gp = gpar(lwd=4, col="black", fill="black"))
+
+
+#time
+total
+neuro
+neuro_drop
+mental
+mental_drop
+ses
+ses_drop
+poly
+poly_drop
+ploy_end
+poly_drop_na
+
+
+
+
+```
+
+
+
+
+```{r}
+
+
+
+#library("RColorBrewer")
+#brewer.pal(9, "Set1")
+
+time <- boxGrob(glue("Followup"),
+                 x = .1,
+                 y = .9,
+                 just = "center",
+                txt_gp = getOption("boxGrobTxt", default = gpar(color = "white", cex = 1)),
+                box_gp = getOption("boxGrob", default = gpar(fill = "white", color = "white")))
+
+
+total <- boxGrob(glue("Total \n Participants",
+                      "n = {pop}",
+                      pop = txtInt(10908),
+                      .sep = "\n"),
+                 x = .35,
+                 y = .9,
+                 just = "center",
+                 box_gp = gpar(fill="#FF7F00"))
+
+
+neuro <- boxGrob(glue("NeuroImaging",
+                      "n = {pop}",
+                      pop = txtInt(nrow(gfactor_followup_test)),
+                      .sep = "\n"),
+                 x = .1,
+                 y = .5,
+                 just = "center",
+                 width = 0.15,
+                 height = 0.1,
+                 box_gp = gpar(fill="#4393C3"))
+
+neuro_drop <- boxGrob(glue("Removed NA \n Vision \n Problem",
+                      "n = {pop}",
+                      pop = txtInt(10908-nrow(gfactor_followup_test)),
+                      .sep = "\n"),
+                 x = .1,
+                 y = .15,
+                 just = "center",
+                 width = 0.15,
+                 height = 0.2,
+                 box_gp = gpar(fill="#D6604D"))
+
+
+mental <- boxGrob(glue("Mental\n  Health",
+                      "n = {pop}",
+                      pop = txtInt(nrow(mental_followup)),
+                      .sep = "\n"),
+                  x = .27,
+                  y = .5,
+                  just = "center",
+                  width = 0.15,
+                  height = 0.15,
+                  box_gp = gpar(fill="#4393C3"))
+
+mental_drop <- boxGrob(glue("Removed NA \n Vision  \n Problem",
+                       "n = {pop}",
+                       pop = txtInt(10908-nrow(mental_followup)),
+                       .sep = "\n"),
+                  x = .27,
+                  y = .15,
+                  just = "center",
+                  width = 0.15,
+                  height = 0.2,
+                  box_gp = gpar(fill="#D6604D"))
+
+ses <- boxGrob(glue("Socio-Demo \n Lifestyle Dev",
+                      "n = {pop}",
+                      pop = txtInt(nrow(ses_followup)),
+                      .sep = "\n"),
+               x = .44,
+               y = .5,
+               just = "center",
+               width = 0.15,
+               height = 0.15,
+               box_gp = gpar(fill="#4393C3"))
+
+
+ses_drop <- boxGrob(glue("Removed NA \n Vision \n Problem",
+                    "n = {pop}",
+                    pop = txtInt(10908-nrow(ses_followup)),
+                    .sep = "\n"),
+               x = .44,
+               y = .15,
+               just = "center",
+               width = 0.15,
+               height = 0.2,
+               box_gp = gpar(fill="#D6604D"))
+
+
+
+
+
+
+poly <- boxGrob(glue("polygenic \n scores",
+                      "n = {pop}",
+                      pop = txtInt(5989),
+                      .sep = "\n"),
+                x = .61,
+                y = .5,
+                just = "center",
+                width = 0.15,
+                height = 0.15,
+                box_gp = gpar(fill="#92C5DE"))
+
+poly_drop <- boxGrob(glue("Have No \n Polygenic \n scores",
+                     "n = {pop}",
+                     pop = txtInt(10908-5989),
+                     .sep = "\n"),
+                x = .61,
+                y = .15,
+                just = "center",
+                width = 0.15,
+                height = 0.2,
+                box_gp = gpar(fill="#D6604D"))
+
+
+ploy_end <- boxGrob(glue("polygenic \n scores",
+                         "n = {pop}",
+                         pop = txtInt(nrow(gene_followup)),
+                         .sep = "\n"),
+                    x = .9,
+                    y = .5,
+                    just = "center",
+                    width = 0.15,
+                    height = 0.15,
+                    box_gp = gpar(fill="#4393C3"))
+
+
+poly_drop_na <- boxGrob(glue("Removed NA \n Vision \n Problem",
+                          "n = {pop}",
+                          pop = txtInt(5989-nrow(gene_followup)),
+                          .sep = "\n"),
+                     x = .9,
+                     y = .15,
+                     just = "center",
+                     width = 0.15,
+                     height = 0.2,
+                     box_gp = gpar(fill="#D6604D"))
+
+connectGrob(total, neuro, lty_gp = gpar(lwd=4, col="black", fill="black"))
+connectGrob(total, mental, lty_gp = gpar(lwd=4, col="black", fill="black"))
+connectGrob(total, ses, lty_gp = gpar(lwd=4, col="black", fill="black"))
+connectGrob(total, poly, lty_gp = gpar(lwd=4, col="black", fill="black"))
+connectGrob(neuro, neuro_drop,"vertical", lty_gp = gpar(lwd=4, col="black", fill="black"))
+connectGrob(mental, mental_drop,"vertical", lty_gp = gpar(lwd=4, col="black", fill="black"))
+connectGrob(ses, ses_drop,"vertical", lty_gp = gpar(lwd=4, col="black", fill="black"))
+connectGrob(poly, poly_drop,"vertical", lty_gp = gpar(lwd=4, col="black", fill="black"))
+connectGrob(poly, ploy_end,"horizontal", lty_gp = gpar(lwd=4, col="black", fill="black"))
+connectGrob(ploy_end, poly_drop_na,"vertical", lty_gp = gpar(lwd=4, col="black", fill="black"))
+
+
+#time
+total
+neuro
+neuro_drop
+mental
+mental_drop
+ses
+ses_drop
+poly
+poly_drop
+ploy_end
+poly_drop_na
+
+
+
+
+```
+
+
+
+
+
+```{r cars}
+
+flow_exclusions(
+  incl_counts = c(972, 132, 77, 14),
+  total_label = "Total Screened",
+  incl_labels = c("Consented", "Completed Study", "BMI <= 30"),
+  excl_labels = c("Declined Consent", "Failed to Complete", "BMI > 30")
+)
+flow_exclusions(c(1000, 300, 150, 75, 38), percent_of_total = TRUE)
+flow_exclusions(c(100000, 3000, 1666, 411, 38),
+                percent_of_prev = TRUE,
+                show_count = FALSE)
+flow_exclusions(
+  incl_counts = c(972, 132, 77, 14),
+  total_label = "Total Screened",
+  incl_labels = c("Consented", "Completed Study", "BMI <= 30"),
+  excl_labels = c("Declined Consent", "Failed to Complete", "BMI > 30"), 
+  percent_of_total = TRUE,
+  percent_of_prev = FALSE,
+  show_count = FALSE,
+  font_size = 14)
+```

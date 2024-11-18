@@ -1,0 +1,889 @@
+---
+title: "Commonality analysis of the linear mixed models between each brain modality & mental health"
+author: "Yue Wang and Narun P"
+date:  "`r format(Sys.time(), '%d %b, %Y')`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: united
+    number_sections: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r load_data, echo=FALSE}
+rm(list = ls(all.names = TRUE)) #will clear all objects includes hidden objects.
+gc() #free up memory and report the memory usage.
+```
+
+## Note
+Here we use the ABCD release 5.1 data-set
+
+# Setting up the environment
+
+## Loading libraries
+The following libraries and default settings were used during the analysis:
+
+
+```{r load_libraries}
+options(scipen = 999)
+#library("sva")
+library(tidyverse)
+library("tidymodels")
+##parallel map
+library(partR2)
+library(lme4)
+library(yhat)
+library(ggtext)
+library(ggpubr)
+library(cowplot)
+library(partR2)
+library(lme4)
+library(yhat)
+## library to tidy up the linear mixed models
+library(sjPlot)
+library("VennDiagram")
+
+
+theme_set(theme_bw() + theme(panel.grid = element_blank()))
+## parallel processing number of cores register
+all_cores <- parallel::detectCores(logical = FALSE) - 5
+
+doParallel::registerDoParallel(cores = all_cores)
+
+```
+
+## Setting up path
+
+We first loaded all of the relevant data files (not shown here as they refer to local directories):
+
+```{r loading_data, echo=FALSE}
+
+### mac directories
+datafolder = "/Volumes/Data/ABCD/ABCD4/ABCD4SQL/"
+scriptfold = "/Volumes/Data/Yue script/"
+NDAfold = "/Volumes/Data/ABCD/ABCD4/ABCDStudyNDA/"
+utilFold = "/Volumes/Data/ABCD/ABCD3/Analysis/utilFunc/"
+studyNDAFold = "/Volumes/Data/ABCD/ABCD4/ABCDStudyNDA/"
+outputfolder = "/Volumes/Data/ABCD/ABCD4/ABCD4_precessed_data/"
+featurefolder = "/Volumes/Data/ABCD/ABCD4/Analysis/ManipulatedData/"
+
+
+# mac directories
+ABCD4Fold <-"/Volumes/Data/ABCD/ABCD4/"
+ABCD3Fold <-"/Volumes/Data/ABCD/ABCD3/"
+scriptfold = "/Volumes/Data/Yue script/"
+
+#ABCD4Fold <- "//np-qnapa/Data/ABCD/ABCD4/"
+#setwd(paste0(ABCD3Fold, "Analysis/CognitionP"))
+dataFold <- paste0(ABCD4Fold, "ABCD4SQL/")
+utilFold <- paste0(ABCD3Fold, "Analysis/utilFunc/")
+
+nesi_folder <- "/Volumes/sci-psy-narun/Nesi/Yue/"
+datafolder_5.1 = '/Volumes/sci-psy-narun/abcd-data-release-5.1/core/'
+outputfolder_5.1 = "/Volumes/sci-psy-narun/Yue/ABCD_5.1_data_precessing/processed_data/"
+dicfolder_5.1 = '/Volumes/sci-psy-narun/abcd-data-release-5.1/dictionary/'
+featurefolder = "/Volumes/sci-psy-narun/Yue/ABCD_5.1_data_precessing/processed_data/"
+utilFold = "/Volumes/Data/ABCD/ABCD3/Analysis/utilFunc/"
+imagingfolder_5.1  = paste0(datafolder_5.1, "imaging/")
+commonfolder = "/Volumes/sci-psy-narun/Yue/Common_psy_ses_brain_gene_5.1/"
+
+
+gene_fold <- paste0(ABCD4Fold, "RicPGS/RicFIles20_Feb_2022/abcd-release-3.0_chrall_0.8-mac5-hg19-eur-qc-v9/")
+
+source(paste0(scriptfold,"stacking_gfactor_modelling/r_functions_5.1.R"))
+
+
+```
+
+## load fitted results
+
+
+### load the mental health predicted results
+
+```{r}
+
+
+psy_pred <- readRDS(paste0(scriptfold,"Common_psy_gene_brain_all/saved_outputs/psychopathology_pls_pred_no_asr_5.1.RData"))
+
+
+```
+
+
+### load the computed gfactor
+
+```{r}
+
+gfactor_list <- readRDS(paste0(scriptfold,'genetics_psychopathology_common_scan_all_scripts/gfactor_scale_seperate_5.1', '.RData'))
+
+
+```
+
+
+```{r}
+
+gfactor_baselie_test <- map(gfactor_list,"output_test_baseline")
+gfactor_followup_test <- map(gfactor_list,"output_test_followup")
+
+
+```
+
+```{r}
+subj_info <- c("SRC_SUBJECT_ID","SITE_ID_L","EVENTNAME")
+
+```
+
+Join predictions with subject information.
+
+
+```{r}
+pred_processing <- function(baseline_pred, followup_pred, baseline_table, followup_table,pred_name){
+  names_vec <- c(subj_info,pred_name)
+  
+  baseline_subj_info <- baseline_table %>% select(all_of(subj_info))
+  baseline_pred_vec <- baseline_pred %>% select(model_predict)
+  baseline_output <- bind_cols(baseline_subj_info,baseline_pred_vec)
+  names(baseline_output) <- names_vec
+  
+  followup_subj_info <- followup_table %>% select(all_of(subj_info))
+  followup_pred_vec <- followup_pred %>% select(model_predict)
+  followup_output <- bind_cols(followup_subj_info,followup_pred_vec)
+  names(followup_output) <- names_vec
+
+  output_all <- bind_rows(baseline_output,followup_output)
+  return(list(baseline_output = baseline_output,
+              followup_output = followup_output))
+}
+
+
+
+
+```
+
+
+
+```{r}
+processed_psy_results <- pmap(list(psy_pred[["baseline_test_pred"]],
+                                   psy_pred[["baseline_test_data"]],
+                                  psy_pred[["followup_test_pred"]],
+                                  psy_pred[["followup_test_data"]]),
+                             ~pred_processing(baseline_pred=..1,
+                                              followup_pred=..3, 
+                                              baseline_table=..2, 
+                                              followup_table=..4,
+                                              pred_name="psychopathology_pls"))
+
+```
+
+
+```{r}
+
+site_char <- names(processed_psy_results)
+
+```
+
+### prepocessing genetics prediction results
+
+load in family index data
+
+
+```{r, cache = FALSE, warning=FALSE}
+acspsw03 <- read.csv("/Volumes/sci-psy-narun/abcd-data-release-5.1/core/abcd-general/abcd_y_lt.csv", na = c("", "NA", "999", "777"))
+names(acspsw03) <-toupper(colnames(acspsw03))
+acspsw03_select <- acspsw03 %>% filter(EVENTNAME %in% c("baseline_year_1_arm_1","2_year_follow_up_y_arm_1" ))
+
+### write NAs of the followup family ids to be the family IDs at baseline
+acspsw03_baseline <- acspsw03_select %>% filter(EVENTNAME == "baseline_year_1_arm_1" )
+acspsw03_followup <- acspsw03_select %>% filter(EVENTNAME == "2_year_follow_up_y_arm_1" )
+
+fam_basline <- acspsw03_baseline %>% dplyr::select(all_of(c("REL_FAMILY_ID","SRC_SUBJECT_ID")))
+
+acspsw03_followup <- acspsw03_followup %>%dplyr::select(-"REL_FAMILY_ID") %>% 
+                                          left_join(fam_basline, by = "SRC_SUBJECT_ID")
+
+acspsw03_select <- bind_rows(acspsw03_baseline,acspsw03_followup)
+
+demo <- read.csv("/Volumes/sci-psy-narun/abcd-data-release-5.1/core/abcd-general/abcd_p_demo.csv", na = c("", "NA", "999", "777"))
+names(demo) <-toupper(colnames(demo))
+demo_select <- demo %>% filter(EVENTNAME %in% c("baseline_year_1_arm_1","2_year_follow_up_y_arm_1" ))
+
+
+
+ACS <- left_join(demo_select,acspsw03_select,by =c("SRC_SUBJECT_ID","EVENTNAME"))
+#knitr::kable(glimpse(ACS))
+
+#race_ethnicity
+#1 = White; 2 = Black; 3 = Hispanic; 4 = Asian; 5 = Other
+
+# guardian-report relationship
+# Relationship of the participant in his or her family
+# 0 = single; 1 = sibling; 2 = twin; 3 = triplet
+# ACS %>% count(REL_RELATIONSHIP)
+
+ACSselected <- ACS %>% 
+  dplyr::select(all_of(c("SRC_SUBJECT_ID", "EVENTNAME", "DEMO_SEX_V2", "INTERVIEW_AGE", "RACE_ETHNICITY", 
+                              "REL_FAMILY_ID", "ACS_RAKED_PROPENSITY_SCORE","SITE_ID_L"))) %>%
+  mutate(RACE_ETHNICITY = recode_factor(as.factor(RACE_ETHNICITY),
+                `1` = "White", `2` = "Black", `3` = "Hispanic", `4` = "Asian", `5` = "Other",
+                .default = "White")) %>%
+  mutate(DEMO_SEX_V2 = as.factor(DEMO_SEX_V2)) %>%
+  mutate(REL_FAMILY_ID = as.factor(REL_FAMILY_ID))
+
+ACSselected %>%
+ filter(EVENTNAME =="baseline_year_1_arm_1") %>%
+ skimr::skim()
+
+
+ACSselected_baseline <- ACSselected %>%
+ filter(EVENTNAME =="baseline_year_1_arm_1")
+
+ACSselected_followup <- ACSselected %>%
+ filter(EVENTNAME =="2_year_follow_up_y_arm_1")
+```
+
+## Commonality of individual sets of brain features by elastic net (related to cognition) predictions and psychopathology
+
+
+Loading the elastic net predictions
+
+```{r}
+enet_baseline <- readRDS(paste0(scriptfold,"stacking_gfactor_modelling/random_forest_data/random_forest_all_baseline_test_5.1.RDS"))
+
+enet_followup <- readRDS(paste0(scriptfold,"stacking_gfactor_modelling/random_forest_data/random_forest_all_followup_test_5.1.RDS"))
+```
+
+Join the brain predictions with mental health.
+
+Do not drop NA here, because a large numbers of participants are dropped. 
+
+Drop NA before the linear mixed models.
+
+```{r}
+
+join_gfactor_enet_psy <- function(site_input){
+  enet_baseline_tibble <- enet_baseline[[site_input]]
+  enet_followup_tibble <- enet_followup[[site_input]]
+  psy_baseline_tibble <- processed_psy_results[[site_input]][["baseline_output"]]
+  psy_followup_tibble <- processed_psy_results[[site_input]][["followup_output"]]
+  
+  enet_psy_baseline <- full_join(enet_baseline_tibble,psy_baseline_tibble, by =subj_info)
+ enet_psy_followup <- full_join(enet_followup_tibble,psy_followup_tibble, by =subj_info)
+
+  
+  gfactor_baseline <- gfactor_baselie_test[[site_input]]
+  gfactor_followup <- gfactor_followup_test[[site_input]]
+
+  output_baseline <- full_join(enet_psy_baseline,gfactor_baseline,by="SRC_SUBJECT_ID")
+  #%>% drop_na()
+  output_followup <- full_join(enet_psy_followup,gfactor_followup,by="SRC_SUBJECT_ID")
+  #%>%drop_na()
+ output_all <- bind_rows(output_baseline,output_followup)
+  
+  return(list(baseline = output_baseline,
+              followup=output_followup,
+              all = output_all))
+  
+}
+```
+
+
+```{r}
+
+gfactor_pred_enet <- map(.x = site_char,~join_gfactor_enet_psy(site_input = .x))
+
+names(gfactor_pred_enet) <- site_char
+
+gfactor_enet_pred_baseline <- map(gfactor_pred_enet,"baseline")
+gfactor_enet_pred_followup <- map(gfactor_pred_enet,"followup")
+gfactor_enet_baseline_followup <- map(gfactor_pred_enet,"all")
+
+
+gfactor_enet_pred_baseline_table <- gfactor_enet_pred_baseline%>% do.call(rbind,.)
+gfactor_enet_pred_followup_table <- gfactor_enet_pred_followup %>% do.call(rbind,.)
+
+```
+
+
+### regress out med and demo information
+
+
+### get the residual of of the predicted values with age, sex and med information
+
+
+ATC/DDD Index 2024
+
+ATC code
+
+A ALIMENTARY TRACT AND METABOLISM
+B BLOOD AND BLOOD FORMING ORGANS
+C CARDIOVASCULAR SYSTEM
+D DERMATOLOGICALS
+G GENITO URINARY SYSTEM AND SEX HORMONES
+H SYSTEMIC HORMONAL PREPARATIONS, EXCL. SEX HORMONES AND INSULINS
+J ANTIINFECTIVES FOR SYSTEMIC USE
+L ANTINEOPLASTIC AND IMMUNOMODULATING AGENTS
+M MUSCULO-SKELETAL SYSTEM
+N NERVOUS SYSTEM
+P ANTIPARASITIC PRODUCTS, INSECTICIDES AND REPELLENTS
+R RESPIRATORY SYSTEM
+S SENSORY ORGANS
+V VARIOUS
+
+```{r}
+abcd_med_5.1 <-  readRDS(paste0(scriptfold,'Common_psy_gene_brain_all/saved_outputs/performance_metrics/med_info_all_5.1', '.RData'))                  
+
+ reg_resp <- c("smri_T2_mean_total_data","smri_T1_mean_total_data","Normalised_T2_",
+               "Avg_T2_Gray_","Avg_T2_White_","Normalised_T1_","Avg_T1_Gray_","Avg_T1_White_",
+               "Dest_Sulcal_Depth_","Dest_Vol_","Dest_Area_","Dest_Thick_","Vol_ASEG_",
+               "Avg_T2_ASEG_","Avg_T1_ASEG_Vol_","rsmri_gordon_aseg_data","rsmri_within_avg_data","incorrectgovsincorrectstop_ROI_",
+               "incorrectgovscorrectgo_ROI_","correctstopvsincorrectstop_ROI_","anystopvscorrectgo_ROI_",
+               "incorrectstopvscorrectgo_ROI_","correctstopvscorrectgo_ROI_","correctgovsfixation_ROI_",
+               "antiLargeLossVsSmallLoss_ROI_","antiSmallLossVsNeu_ROI_","antiLargeLossVsNeu_ROI_",
+               "antiLargeRewVsSmallRew_ROI_","antiSmallRewVsNeu_ROI_","antiLargeRewVsNeu_ROI_","feedPunPosVsNeg_ROI_",
+               "feedRewPosVsNeg_ROI_","antiLosVsNeu_ROI_","antiRewVsNeu_ROI_","posfacevsneutface_ROI_",
+               "negfacevsneutface_ROI_","facevsplace_ROI_","emotionvsneutface_ROI_","X2backvs0back_ROI_",
+               "emotion_ROI_","place_ROI_","X2back_ROI_","X0back_ROI_","DTI_data","rsmri_subnet","psychopathology_pls" ) %>% set_names()
+ subj_info_vec <- c(subj_info,"INTERVIEW_AGE")
+ med_regress_features <- c("is_ATC_A","is_ATC_B","is_ATC_C","is_ATC_D","is_ATC_G","is_ATC_H","is_ATC_J","is_ATC_L",
+                           "is_ATC_M","is_ATC_N","is_ATC_P","is_ATC_R","is_ATC_S","is_ATC_V","DEMO_SEX_V2","INTERVIEW_AGE")
+ ### follow up sex information are all NAs (biological sense of sex)
+ sex_info_table <- ACSselected %>% filter(EVENTNAME =="baseline_year_1_arm_1") %>% select(all_of(subj_info),"DEMO_SEX_V2") %>% 
+                   select(-EVENTNAME)
+site_char <- site_char %>% set_names()
+
+
+ residual_one_resp <- function(resp_input= "random_forest_stacking", 
+                               data_input=data_med){
+   formula_input <- paste0(resp_input," ~ ",paste0(med_regress_features, collapse = " + "))
+   residual_output <- residuals(lm(as.formula(formula_input),data = data_input))
+   return(residual_output)
+ }
+ 
+get_residuals_med_sex_age <- function(data_list = gfactor_enet_pred_followup,
+                                      event_input =  "2_year_follow_up_y_arm_1"){
+  data_input <- data_list %>% do.call(bind_rows,.)
+ 
+  
+  age_info <- ACSselected %>% 
+              filter(EVENTNAME == event_input) %>%
+              select(all_of(subj_info_vec))
+  
+  data_fam <- plyr::join_all(list(data_input,age_info),type = "left", by = subj_info) %>% drop_na()
+  data_all <- left_join(data_fam, sex_info_table, by = c( "SRC_SUBJECT_ID","SITE_ID_L"))
+  ### remove columns that are all 0s
+  data_med <- left_join(data_all, abcd_med_5.1, by = c( "SRC_SUBJECT_ID","EVENTNAME")) %>% drop_na()
+  
+  data_med_info <- data_med %>% select(starts_with("is_ATC_"))%>% select_if(colSums(.) != 0)
+  
+  data_med_processed <- data_med %>% select(-starts_with("is_ATC_")) %>% bind_cols(data_med_info) %>%
+  mutate(across(starts_with("is_ATC_"),factor))
+  ### get all the residuals
+  
+  
+  
+  
+  residual_list <- reg_resp %>% map(.,~residual_one_resp(resp_input = ., data_input=data_med))
+  data_output <- tibble(psychopathology_pls = residual_list[["psychopathology_pls"]]%>% as.numeric(),
+                        DTI_data= residual_list[["DTI_data"]] %>% as.numeric(),
+                        X0back_ROI_ = residual_list[["X0back_ROI_"]]%>% as.numeric(),
+                        X2back_ROI_ = residual_list[["X2back_ROI_"]]%>% as.numeric(),
+                        place_ROI_ = residual_list[["place_ROI_"]]%>% as.numeric(),
+                        emotion_ROI_= residual_list[["emotion_ROI_"]] %>% as.numeric(),
+                        X2backvs0back_ROI_ = residual_list[["X2backvs0back_ROI_"]]%>% as.numeric(),
+                        emotionvsneutface_ROI_ = residual_list[["emotionvsneutface_ROI_"]]%>% as.numeric(),
+                        facevsplace_ROI_ = residual_list[["facevsplace_ROI_"]]%>% as.numeric(),
+                        negfacevsneutface_ROI_= residual_list[["negfacevsneutface_ROI_"]] %>% as.numeric(),
+                        posfacevsneutface_ROI_ = residual_list[["posfacevsneutface_ROI_"]]%>% as.numeric(),
+                        antiRewVsNeu_ROI_ = residual_list[["antiRewVsNeu_ROI_"]]%>% as.numeric(),
+                        antiLosVsNeu_ROI_ = residual_list[["antiLosVsNeu_ROI_"]]%>% as.numeric(),
+                        smri_T2_mean_total_data= residual_list[["smri_T2_mean_total_data"]] %>% as.numeric(),
+                        antiSmallRewVsNeu_ROI_ = residual_list[["antiSmallRewVsNeu_ROI_"]]%>% as.numeric(),
+                        antiLargeRewVsNeu_ROI_ = residual_list[["antiLargeRewVsNeu_ROI_"]]%>% as.numeric(),
+                        feedPunPosVsNeg_ROI_ = residual_list[["feedPunPosVsNeg_ROI_"]]%>% as.numeric(),
+                        feedRewPosVsNeg_ROI_= residual_list[["feedRewPosVsNeg_ROI_"]] %>% as.numeric(),
+                        antiSmallLossVsNeu_ROI_ = residual_list[["antiSmallLossVsNeu_ROI_"]]%>% as.numeric(),
+                        antiLargeLossVsNeu_ROI_ = residual_list[["antiLargeLossVsNeu_ROI_"]]%>% as.numeric(),
+                        correctstopvscorrectgo_ROI_ = residual_list[["correctstopvscorrectgo_ROI_"]]%>% as.numeric(),
+                        correctgovsfixation_ROI_= residual_list[["correctgovsfixation_ROI_"]] %>% as.numeric(),
+                        correctstopvsincorrectstop_ROI_ = residual_list[["correctstopvsincorrectstop_ROI_"]]%>% as.numeric(),
+                        anystopvscorrectgo_ROI_ = residual_list[["anystopvscorrectgo_ROI_"]]%>% as.numeric(),
+                        rsmri_gordon_aseg_data = residual_list[["rsmri_gordon_aseg_data"]]%>% as.numeric(),
+                        antiLargeRewVsSmallRew_ROI_= residual_list[["antiLargeRewVsSmallRew_ROI_"]] %>% as.numeric(),
+                        antiLargeLossVsSmallLoss_ROI_ = residual_list[["antiLargeLossVsSmallLoss_ROI_"]]%>% as.numeric(),
+                        smri_T1_mean_total_data = residual_list[["smri_T1_mean_total_data"]]%>% as.numeric(),
+                        incorrectstopvscorrectgo_ROI_ = residual_list[["incorrectstopvscorrectgo_ROI_"]]%>% as.numeric(),
+                        incorrectgovscorrectgo_ROI_= residual_list[["incorrectgovscorrectgo_ROI_"]] %>% as.numeric(),
+                        Avg_T1_ASEG_Vol_ = residual_list[["Avg_T1_ASEG_Vol_"]]%>% as.numeric(),
+                        rsmri_within_avg_data = residual_list[["rsmri_within_avg_data"]]%>% as.numeric(),
+                        incorrectgovsincorrectstop_ROI_ = residual_list[["incorrectgovsincorrectstop_ROI_"]]%>% as.numeric(),
+                        Avg_T2_ASEG_= residual_list[["Avg_T2_ASEG_"]] %>% as.numeric(),
+                        Dest_Vol_ = residual_list[["Dest_Vol_"]]%>% as.numeric(),
+                        Dest_Area_ = residual_list[["Dest_Area_"]]%>% as.numeric(),
+                        Avg_T2_White_ = residual_list[["Avg_T2_White_"]]%>% as.numeric(),
+                        Dest_Thick_= residual_list[["Dest_Thick_"]] %>% as.numeric(),
+                        Vol_ASEG_ = residual_list[["Vol_ASEG_"]]%>% as.numeric(),
+                        Avg_T1_Gray_ = residual_list[["Avg_T1_Gray_"]]%>% as.numeric(),
+                        Avg_T1_White_ = residual_list[["Avg_T1_White_"]]%>% as.numeric(),
+                        Dest_Sulcal_Depth_= residual_list[["Dest_Sulcal_Depth_"]] %>% as.numeric(),
+                        Normalised_T1_ = residual_list[["Normalised_T1_"]]%>% as.numeric(),
+                        Avg_T2_Gray_ = residual_list[["Avg_T2_Gray_"]]%>% as.numeric(),
+                        Normalised_T2_ = residual_list[["Normalised_T2_"]]%>% as.numeric(),
+                        rsmri_subnet = residual_list[["rsmri_subnet"]]%>% as.numeric())
+data_input_select <- data_med %>% select(all_of(c("SRC_SUBJECT_ID","SITE_ID_L","EVENTNAME","gfactor"))) 
+ output_table  <-  bind_cols(data_input_select,data_output) 
+
+output_list <- map(site_char,~filter(output_table,SITE_ID_L == .))
+return(output_list)
+}
+
+```
+
+
+Compute the residuals
+
+
+```{r}
+
+gfactor_all_baseline_residual <-  get_residuals_med_sex_age(data_list = gfactor_enet_pred_baseline,
+                                      event_input =  "baseline_year_1_arm_1")
+
+gfactor_all_followup_residual <-  get_residuals_med_sex_age(data_list = gfactor_enet_pred_followup,
+                                      event_input =  "2_year_follow_up_y_arm_1")
+```
+
+
+
+
+
+Processing the data across sites: mean centering.
+
+sorting out the names
+
+```{r}
+
+brain_modality_names_namual <- tibble(tibble_names=c("DTI_data","rsmri_within_avg_data","smri_T2_mean_total_data","smri_T1_mean_total_data","Normalised_T2_","Avg_T2_Gray_","Avg_T2_White_","Normalised_T1_","Avg_T1_Gray_","Avg_T1_White_","Dest_Sulcal_Depth_","Dest_Vol_","Dest_Area_","Dest_Thick_","Vol_ASEG_","Avg_T2_ASEG_","Avg_T1_ASEG_Vol_","rsmri_gordon_aseg_data","incorrectgovsincorrectstop_ROI_","incorrectgovscorrectgo_ROI_","correctstopvsincorrectstop_ROI_","anystopvscorrectgo_ROI_","incorrectstopvscorrectgo_ROI_","correctstopvscorrectgo_ROI_","correctgovsfixation_ROI_","antiLargeLossVsSmallLoss_ROI_","antiSmallLossVsNeu_ROI_","antiLargeLossVsNeu_ROI_","antiLargeRewVsSmallRew_ROI_","antiSmallRewVsNeu_ROI_","antiLargeRewVsNeu_ROI_","feedPunPosVsNeg_ROI_","feedRewPosVsNeg_ROI_","antiLosVsNeu_ROI_","antiRewVsNeu_ROI_","posfacevsneutface_ROI_","negfacevsneutface_ROI_","facevsplace_ROI_","emotionvsneutface_ROI_","X2backvs0back_ROI_","emotion_ROI_","place_ROI_","X2back_ROI_","X0back_ROI_","rsmri_subnet" ) ,
+label_names = c("DTI","rsmri_within_avg","smri_T2_mean_total","smri_T1_mean_total","Normalised_T2","Avg_T2_Gray","Avg_T2_White","Normalised_T1","Avg_T1_Gray","Avg_T1_White","Dest_Sulcal_Depth","Dest_Vol","Dest_Area","Dest_Thick","Vol_ASEG","Avg_T2_ASEG","Avg_T1_ASEG_Vol","rsmri_gordon_aseg","incorrectgovsincorrectstop","incorrectgovscorrectgo","correctstopvsincorrectstop","anystopvscorrectgo","incorrectstopvscorrectgo","correctstopvscorrectgo","correctgovsfixation","antiLargeLossVsSmallLoss","antiSmallLossVsNeu","antiLargeLossVsNeu","antiLargeRewVsSmallRew","antiSmallRewVsNeu","antiLargeRewVsNeu","feedPunPosVsNeg","feedRewPosVsNeg","antiLosVsNeu","antiRewVsNeu","posfacevsneutface","negfacevsneutface","facevsplace","emotionvsneutface","X2backvs0back","emotion","place","X2back","X0back","rsmri_subnet" ))
+
+```
+
+mean centering with in site
+
+```{r}
+#data_input <- gfactor_enet_pred_baseline[[1]]
+#modality_input <- brain_modality_names_namual$tibble_names[1]
+
+center_by_site <- function(data_input, modality_input){
+  data_select <- data_input %>% select(all_of(subj_info),
+                                       all_of(c(modality_input,"psychopathology_pls","gfactor")))%>%
+                 drop_na()
+  
+  var_vec <- data_select[[modality_input]]
+  mean_var_vec <- mean(var_vec)
+  centered_var_vec <- var_vec -mean_var_vec
+ var_tibble <- tibble(centered_var_vec,mean_var_vec)
+ names(var_tibble) <- paste0(modality_input,c("_cws","_savg")) 
+ 
+ output_tibble <- bind_cols(data_select,var_tibble)
+ 
+  output_tibble <- output_tibble %>% 
+    mutate(psy_savg = mean(psychopathology_pls))%>% 
+    mutate(psy_cws = psychopathology_pls-psy_savg)
+
+return(output_tibble)
+  }
+
+#list_input <- gfactor_enet_pred_baseline
+center_across_site <- function(list_input, modality_input, acs_input=ACSselected_baseline){
+  one_modality_cross_site <- list_input %>% map(.,~center_by_site(data_input=.,
+                                                                  modality_input=modality_input))%>%
+    do.call(rbind,.)%>%
+                            drop_na()
+  
+  one_modality_cross_site <- one_modality_cross_site %>%
+                            left_join(acs_input, by =subj_info)
+  return(one_modality_cross_site)
+}
+
+
+centered_cross_site_baseline <- brain_modality_names_namual$tibble_names%>%
+                                map(.,~center_across_site(list_input = gfactor_all_baseline_residual,
+                                                          modality_input=.,acs_input=ACSselected_baseline))
+
+names(centered_cross_site_baseline) <- brain_modality_names_namual$tibble_names
+
+centered_cross_site_followup <- brain_modality_names_namual$tibble_names%>%
+                                map(.,~center_across_site(list_input = gfactor_all_followup_residual,
+                                                          modality_input=.,acs_input=ACSselected_followup))
+
+names(centered_cross_site_followup) <- brain_modality_names_namual$tibble_names
+```
+
+
+### commonality analysis of individual brain scan modalities against predictions 
+
+All the values of coefficients are taken averages across sites. Then process the data for interval plot. It is quite like the previous work.
+
+Load the variable names
+
+```{r}
+enet_interval_names <- readxl::read_excel(paste0(commonfolder,"CommonalityPlotingNames.xlsx"))
+
+```
+
+
+compute the commonality metrics across individual modalities
+
+```{r}
+
+
+common_analysis_psy_brain_mod <- function(data_input=centered_cross_site_baseline[[modality_input]],
+                                     modality_input){
+ 
+  modality_savg <- paste0(modality_input,"_savg")
+  modality_cws <- paste0(modality_input,"_cws")
+  
+ full_model <- as.formula(paste0("gfactor ~psy_savg+psy_cws+",modality_savg,"+",modality_cws,"+ (1|SITE_ID_L:REL_FAMILY_ID)")) 
+  
+ modality_only_model <- as.formula(paste0("gfactor~",modality_savg,"+",modality_cws,"+(1|SITE_ID_L:REL_FAMILY_ID)"))
+ 
+full_model <- lmer(full_model,data = data_input)
+  rsq_full <- performance::r2(full_model)
+
+  modality_model <- lmer(modality_only_model,data = data_input)
+  rsq_modality <- performance::r2(modality_model)
+  
+  
+ psy_model <- lmer(gfactor ~  psy_savg+psy_cws+ (1|SITE_ID_L:REL_FAMILY_ID),data = data_input)
+ rsq_psy <- performance::r2(psy_model)
+  
+  unique_modality_margin <- rsq_full$R2_marginal-rsq_psy$R2_marginal
+  
+  unique_psy_margin <- rsq_full$R2_marginal-rsq_modality$R2_marginal
+    
+  common_psy_modality_margin <- rsq_modality$R2_marginal+rsq_psy$R2_marginal-rsq_full$R2_marginal
+  
+  output_tibble <- tibble(values=c(unique_modality_margin,
+                                   unique_psy_margin,
+                                   common_psy_modality_margin,
+                                   rsq_full$R2_marginal),
+                          modality = modality_input,
+                          names = c(paste0("unique_", modality_input),
+                                    "unique_psychopathology",
+                                    "common",
+                                    "total"))
+  
+  
+  return(output_tibble)
+  }
+
+
+common_brain_baseline <- map2(.x = centered_cross_site_baseline, 
+                              .y = brain_modality_names_namual$tibble_names,
+                              ~common_analysis_psy_brain_mod(data_input = .x,
+                                                             modality_input = .y))
+
+
+common_brain_followup <- map2(.x = centered_cross_site_followup, 
+                              .y = brain_modality_names_namual$tibble_names,
+                              ~common_analysis_psy_brain_mod(data_input = .x,
+                                                             modality_input = .y))
+```
+
+
+
+
+
+```{r}
+
+### compute the numbers for the interval plots
+common_across_features <- function(tibble_input){
+  upp <- c(tibble_input$values[3],tibble_input$values[3]+tibble_input$values[2],tibble_input$values[4])
+  low <- c(0,tibble_input$values[3],tibble_input$values[3]+tibble_input$values[2])
+  text_coor <- c(0,upp[2]/2,tibble_input$values[4])
+  modality <- unique(tibble_input$modality)
+
+  plotting_name <- enet_interval_names$plotting_name[which(enet_interval_names$Original_name==modality)]
+  
+  output_tibble <- tibble(modality=rep(modality,length(upp)),
+                          upp = upp*100,
+                          low=low*100,
+                          variable=c("common","psy","brain"),
+                          text_coor = text_coor*100,
+                          text_val =round(c(tibble_input$values[3],tibble_input$values[2],tibble_input$values[1])*100,2),
+                          plotting_name = plotting_name)
+  return(output_tibble)
+}
+
+### compute the commonality analysis for baseline
+
+
+common_enet_baseline_tibble <- map(common_brain_baseline,~common_across_features(tibble_input=.))%>%
+                               do.call(rbind,.)%>%
+                  mutate(variable = as.factor(variable))%>%
+                  mutate(variable = factor(variable,levels =c("common",
+                                    "psy",
+                                    "brain")))
+
+
+### change the order of the modalities by descending the total variance explained
+
+#common_enet_baseline_reordered <- common_enet_baseline_tibble %>% group_by(plotting_name)%>% 
+#                                                              arrange(desc(upp))%>%
+#                                                              ungroup()
+
+common_enet_baseline_reordered <- common_enet_baseline_tibble %>% filter(variable =="brain")%>%
+                                                                  arrange(upp)
+
+common_enet_baseline_order_vec <- common_enet_baseline_reordered$plotting_name
+
+common_enet_baseline_reordered_all <- common_enet_baseline_tibble %>%
+                  mutate(plotting_name = as.factor(plotting_name))%>%
+                  mutate(plotting_name = factor(plotting_name,levels =common_enet_baseline_order_vec))
+
+### repeate the same thing for followup.
+
+
+common_enet_followup_tibble <- map(common_brain_followup,~common_across_features(tibble_input=.))%>%
+                               do.call(rbind,.)%>%
+                  mutate(variable = as.factor(variable))%>%
+                  mutate(variable = factor(variable,level =c("common",
+                                    "psy",
+                                    "brain")))
+
+## the same with baseline followup
+common_enet_followup_reordered <- common_enet_followup_tibble %>% filter(variable =="brain")%>%
+                                                                  arrange(upp)
+
+common_enet_followup_order_vec <- common_enet_followup_reordered$plotting_name
+
+common_enet_followup_reordered_all <- common_enet_followup_tibble %>%
+                  mutate(plotting_name = as.factor(plotting_name))%>%
+                  mutate(plotting_name = factor(plotting_name,levels =common_enet_followup_order_vec))
+##change the order for the followup based on the baseline
+common_enet_followup_reordered_baseline <- common_enet_followup_tibble %>%
+                  mutate(plotting_name = as.factor(plotting_name))%>%
+                  mutate(plotting_name = factor(plotting_name,levels =common_enet_baseline_order_vec))
+```
+
+
+Plotting the interval plot. With the template in the previous section.
+
+
+
+
+```{r,fig.height=9,fig.width=12}
+
+## the plot to get the legend
+baseline_enet_plot <- ggplot(common_enet_baseline_reordered_all, aes(x = text_coor, y=plotting_name, colour = variable ))+
+geom_linerange(aes(xmin = low, xmax = upp),linewidth =3) + 
+geom_text(aes(x=text_coor,y=plotting_name,label=text_val),colour="black",vjust=0.5) +
+scale_colour_manual(name=NULL,
+                    values=c(common = "#56B4E9", psy = "#D55E00", brain = "#009E73"),
+                    labels=c(
+                    common =  "<i style='color:#0072B2'>Common effects between the two</i>",
+                    psy = "<i style='color:#D55E00'>Unique effects of mental health</i>",
+                    brain="<i style='color:#009E73'>Unique effects of sets of features from the neuroimaging measures</i>"))+
+  labs(
+    title = "Commonality analysis of  
+    <span style='font-size:11pt'>cognitive abilities ~ 
+    <span style='color:#D55E00;'>mental health</span> +
+   <span style='color:#009E73;'>sets of features from the neuroimaging measures</span>
+    </span>",
+    x = "Baseline", y = NULL
+  ) +    
+  theme_minimal() +
+  guides(colour = guide_legend(nrow = 3))+
+theme(legend.position = "bottom",
+      plot.title = element_markdown(lineheight = 1,size = 15),
+    legend.text = element_markdown(size = 15)
+    ,panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+panel.background = element_blank(), 
+axis.line = element_line(colour = "black"),
+axis.title.x = element_text(size = 10),
+  axis.text.x = element_text(size = 10),
+  axis.title.y = element_blank(),
+  axis.text.y = element_text(size = 12)
+  )
+
+plot_enet_legend <- ggpubr::get_legend(baseline_enet_plot)
+
+
+### get the two align plot
+
+baseline_enet_plot<- ggplot(common_enet_baseline_reordered_all, aes(x = text_coor, y=plotting_name, colour = variable ))+
+geom_linerange(aes(xmin = low, xmax = upp),linewidth =3) + 
+geom_text(aes(x=text_coor,y=plotting_name,label=text_val),colour="black",vjust=0.5) +
+scale_colour_manual(name=NULL,
+                    values=c(common = "#56B4E9", psy = "#D55E00", brain ="#009E73" ),
+                    labels=c(
+                    common =  "<i style='color:#0072B2'>Common effects between the two</i>",
+                    psy = "<i style='color:#D55E00'>Unique effects of mental health</i>",
+                    brain="<i style='color:#009E73'>Unique effects of sets of features from the neuroimaging measures</i>"))+
+  labs(
+    title = "Baseline",
+    y = NULL, x = NULL
+  ) +
+  theme_minimal() +
+  guides(colour = guide_legend(nrow = 3))+
+theme(plot.title = element_markdown(lineheight = 1,size = 15),
+    legend.text = element_markdown(size = 15)
+    ,panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+panel.background = element_blank(), 
+axis.line = element_line(colour = "black"),
+axis.title.x = element_text(size = 10),
+  axis.text.x = element_text(size = 10),
+  axis.title.y = element_blank(),
+  axis.text.y = element_text(size = 12),
+legend.position = "none"
+  )
+
+followup_enet_plot<- ggplot(common_enet_followup_reordered_baseline, aes(x = text_coor, y=plotting_name, colour = variable ))+
+geom_linerange(aes(xmin = low, xmax = upp),linewidth =3) + 
+geom_text(aes(x=text_coor,y=plotting_name,label=text_val),colour="black",vjust=0.5) +
+scale_colour_manual(name=NULL,
+                    values=c(common = "#56B4E9", psy = "#D55E00", brain = "#009E73"),
+                    labels=c(
+                    common =  "<i style='color:#0072B2'>Common effects between the two</i>",
+                    psy = "<i style='color:#D55E00'>Unique effects of mental health</i>",
+                    brain="<i style='color:#009E73'>Unique effects of sets of features from the neuroimaging measures</i>"))+
+  labs(
+    title = "Followup",
+    y = NULL, x = NULL
+  ) +    
+  theme_minimal() +
+  guides(colour = guide_legend(nrow = 3))+
+theme(plot.title = element_markdown(lineheight = 1,size = 15),
+    legend.text = element_markdown(size = 15)
+    ,panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+panel.background = element_blank(), 
+axis.line = element_line(colour = "black"),
+axis.title.x = element_text(size = 10),
+  axis.text.x = element_text(size = 10),
+  axis.title.y = element_blank(),
+  axis.text.y = element_blank(),
+legend.position = "none"
+  )
+
+
+
+
+both_enet_plot <- ggpubr::ggarrange(baseline_enet_plot, followup_enet_plot, widths = c(2.1, 1),heights = c(1,1),
+          ncol = 2, nrow = 1
+          #,common.legend=TRUE,legend = "top"
+          )
+
+
+baseline_followup_enet_plot <- ggpubr::annotate_figure(both_enet_plot,
+                bottom = text_grob("Variance in cognitive abilities explained (%)", size = 15),
+                left = text_grob("Sets of features from the neuroimaging measures", size = 15, rot = 90)
+                )+
+  labs(title =  "Commonality analysis of  
+    <span style='font-size:15pt'>cognitive abilities ~ 
+    <span style='color:#D55E00;'>mental health</span> +
+   <span style='color:#009E73;'>sets of features from the neuroimaging measures</span>
+    </span>",
+    x = NULL, y = NULL
+  )+
+theme(legend.position = "none",
+      plot.title = element_markdown(lineheight = 1,size = 15))
+
+
+ ggpubr::ggarrange(baseline_followup_enet_plot, widths = c(1, 1),heights = c(1,1),
+          ncol = 1, nrow = 1,legend.grob = plot_enet_legend,legend = "bottom"
+          #,common.legend=TRUE
+          )
+
+
+
+
+
+```
+
+
+
+
+
+plotting the modalities by the descending order
+
+
+```{r,fig.height=9,fig.width=12}
+
+## check whether the modalities have the same ranking
+
+print(common_enet_baseline_order_vec == common_enet_followup_order_vec)
+
+
+
+ggplot(common_enet_baseline_reordered_all, aes(x = text_coor, y=plotting_name, colour = variable ))+
+geom_linerange(aes(xmin = low, xmax = upp),linewidth =3) + 
+geom_text(aes(x=text_coor,y=plotting_name,label=text_val),colour="black",vjust=0.5) +
+scale_colour_manual(name=NULL,
+                    values=c(common = "#56B4E9", psy = "#D55E00", brain = "#009E73"),
+                    labels=c(
+                    common =  "<i style='color:#0072B2'>Common effects between the two</i>",
+                    psy = "<i style='color:#D55E00'>Unique effects of mental health</i>",
+                    brain="<i style='color:#009E73'>Unique effects of one neuroimaging measures</i>"))+
+  labs(
+    title = "Commonality analysis of  
+    <span style='font-size:11pt'>gfactor ~ 
+    <span style='color:#D55E00;'>mental health</span> +
+   <span style='color:#009E73;'>neuroimaging measures</span>
+    </span>",
+    x = "Baseline", y = NULL
+  ) +    
+  theme_minimal() +
+  guides(colour = guide_legend(nrow = 3))+
+theme(legend.position = "bottom",
+      plot.title = element_markdown(lineheight = 1,size = 15),
+    legend.text = element_markdown(size = 15)
+    ,panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+panel.background = element_blank(), 
+axis.line = element_line(colour = "black"),
+axis.title.x = element_text(size = 10),
+  axis.text.x = element_text(size = 10),
+  axis.title.y = element_blank(),
+  axis.text.y = element_text(size = 12)
+  )
+
+
+ggplot(common_enet_followup_reordered_all, aes(x = text_coor, y=plotting_name, colour = variable ))+
+geom_linerange(aes(xmin = low, xmax = upp),linewidth =3) + 
+geom_text(aes(x=text_coor,y=plotting_name,label=text_val),colour="black",vjust=0.5) +
+scale_colour_manual(name=NULL,
+                    values=c(common = "#56B4E9", psy = "#D55E00", brain ="#009E73" ),
+                    labels=c(
+                    common =  "<i style='color:#0072B2'>Common effects between the two</i>",
+                    psy = "<i style='color:#D55E00'>Unique effects of mental health</i>",
+                    brain="<i style='color:#009E73'>Unique effects of one neuroimaging measures</i>"))+
+  labs(
+    title = "Commonality analysis of  
+    <span style='font-size:11pt'>gfactor ~ 
+    <span style='color:#D55E00;'>mental health</span> +
+   <span style='color:#009E73;'>neuroimaging measures</span>
+    </span>",
+    x = "Baseline", y = NULL
+  ) +    
+  theme_minimal() +
+  guides(colour = guide_legend(nrow = 3))+
+theme(legend.position = "bottom",
+      plot.title = element_markdown(lineheight = 1,size = 15),
+    legend.text = element_markdown(size = 15)
+    ,panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+panel.background = element_blank(), 
+axis.line = element_line(colour = "black"),
+axis.title.x = element_text(size = 10),
+  axis.text.x = element_text(size = 10),
+  axis.title.y = element_blank(),
+  axis.text.y = element_text(size = 12)
+  )
+```

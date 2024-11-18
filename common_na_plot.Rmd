@@ -1,0 +1,417 @@
+---
+title: "Commonality analysis for Polygenic Scores, mental health, social demographic lifestyle developmental and sets of brain imaging features"
+author: "Yue Wang and Narun P"
+date:  "`r format(Sys.time(), '%d %b, %Y')`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: united
+    number_sections: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r load_data, echo=FALSE}
+rm(list = ls(all.names = TRUE)) #will clear all objects includes hidden objects.
+gc() #free up memory and report the memory usage.
+```
+
+## Note
+Here we the ABCD release 5.1 data-set
+
+
+This file has all the linear mixed models with Polygenic Scores predictions as a variable. The reasons in doing this is that the number of observations in the Polygenic Scores data is substantially less than all the other variables. To be more specific: we have around 5,000 observations in Polygenic Scores data and 11,000 observations in mental health, social demographic lifestyle developmental and sets of brain imaging features.
+
+# Setting up the environments
+
+## Loading libraries
+The following libraries and default settings were used during the analysis:
+
+
+```{r load_libraries}
+options(scipen = 999)
+#library("sva")
+library(tidyverse)
+library("tidymodels")
+##parallel map
+library(partR2)
+library(lme4)
+library(yhat)
+library(ggtext)
+library(ggpubr)
+library(cowplot)
+library(partR2)
+library(lme4)
+library(yhat)
+library("VennDiagram")
+## library to tidy up the linear mixed models
+library(sjPlot)
+
+theme_set(theme_bw() + theme(panel.grid = element_blank()))
+## parallel processing number of cores register
+all_cores <- parallel::detectCores(logical = FALSE) - 5
+
+doParallel::registerDoParallel(cores = all_cores)
+
+```
+
+
+## Setting up the path
+
+We first loaded all of the relevant data files (not shown here as they refer to local directories):
+
+```{r loading_data, echo=FALSE}
+# from Qnap data windows
+#datafolder = "//np-qnapa/Data/ABCD/ABCD4/ABCD4SQL/"
+#scriptfold = "//np-qnapa/Data/Yue script/"
+#NDAfold = "//np-qnapa/Data/ABCD/ABCD4/ABCDStudyNDA/"
+#utilFold = "//np-qnapa/Data/ABCD/ABCD3/Analysis/utilFunc/"
+#studyNDAFold = "//np-qnapa/Data/ABCD/ABCD4/ABCDStudyNDA/"
+#outputfolder = "//np-qnapa/Data/ABCD/ABCD4/ABCD4_precessed_data/"
+
+### unbuntu directories
+
+#datafolder = "/media/Data/ABCD/ABCD4/ABCD4SQL/"
+#scriptfold = "/media/Data/Yue script/"
+#NDAfold = "/media/Data/ABCD/ABCD4/ABCDStudyNDA/"
+#utilFold = "/media/Data/ABCD/ABCD3/Analysis/utilFunc/"
+#studyNDAFold = "/media/Data/ABCD/ABCD4/ABCDStudyNDA/"
+#outputfolder = "/media/Data/ABCD/ABCD4/ABCD4_precessed_data/"
+#featurefolder = "/media/Data/ABCD/ABCD4/Analysis/ManipulatedData/"
+
+### mac directories
+datafolder = "/Volumes/Data/ABCD/ABCD4/ABCD4SQL/"
+scriptfold = "/Volumes/Data/Yue script/"
+NDAfold = "/Volumes/Data/ABCD/ABCD4/ABCDStudyNDA/"
+utilFold = "/Volumes/Data/ABCD/ABCD3/Analysis/utilFunc/"
+studyNDAFold = "/Volumes/Data/ABCD/ABCD4/ABCDStudyNDA/"
+outputfolder = "/Volumes/Data/ABCD/ABCD4/ABCD4_precessed_data/"
+featurefolder = "/Volumes/Data/ABCD/ABCD4/Analysis/ManipulatedData/"
+
+```
+
+
+```{r, cache=FALSE, include=FALSE}
+### ubuntu and windows directories
+#ABCD3Fold <- '/Volumes/wd/ABCD3/'
+#ABCD3Fold <-"~/OneDrive - University of Otago/ABCD3/"
+#ABCD4Fold <-"/media/Data/ABCD/ABCD4/"
+#ABCD3Fold <-"/media/Data/ABCD/ABCD3/"
+#scriptfold = "/media/Data/Yue script/"
+
+# mac directories
+ABCD4Fold <-"/Volumes/Data/ABCD/ABCD4/"
+ABCD3Fold <-"/Volumes/Data/ABCD/ABCD3/"
+scriptfold = "/Volumes/Data/Yue script/"
+
+#ABCD4Fold <- "//np-qnapa/Data/ABCD/ABCD4/"
+#setwd(paste0(ABCD3Fold, "Analysis/CognitionP"))
+dataFold <- paste0(ABCD4Fold, "ABCD4SQL/")
+utilFold <- paste0(ABCD3Fold, "Analysis/utilFunc/")
+
+nesi_folder <- "/Volumes/sci-psy-narun/Nesi/Yue/"
+datafolder_5.1 = '/Volumes/sci-psy-narun/abcd-data-release-5.1/core/'
+outputfolder_5.1 = "/Volumes/sci-psy-narun/Yue/ABCD_5.1_data_precessing/processed_data/"
+dicfolder_5.1 = '/Volumes/sci-psy-narun/abcd-data-release-5.1/dictionary/'
+featurefolder = "/Volumes/sci-psy-narun/Yue/ABCD_5.1_data_precessing/processed_data/"
+utilFold = "/Volumes/Data/ABCD/ABCD3/Analysis/utilFunc/"
+imagingfolder_5.1  = paste0(datafolder_5.1, "imaging/")
+
+
+gene_fold <- paste0(ABCD4Fold, "RicPGS/RicFIles20_Feb_2022/abcd-release-3.0_chrall_0.8-mac5-hg19-eur-qc-v9/")
+
+```
+
+```{r}
+source(paste0(scriptfold,"stacking_gfactor_modelling/r_functions_5.1.R"))
+
+```
+
+
+
+# Data Preparation
+
+## Loading demographics
+
+```{r, cache = FALSE, warning=FALSE}
+
+
+acspsw03 <- read.csv("/Volumes/sci-psy-narun/abcd-data-release-5.1/core/abcd-general/abcd_y_lt.csv", na = c("", "NA", "999", "777"))
+names(acspsw03) <-toupper(colnames(acspsw03))
+acspsw03_select <- acspsw03 %>% filter(EVENTNAME %in% c("baseline_year_1_arm_1","2_year_follow_up_y_arm_1" ))
+
+### write NAs of the followup family ids to be the family IDs at baseline
+acspsw03_baseline <- acspsw03_select %>% filter(EVENTNAME == "baseline_year_1_arm_1" )
+acspsw03_followup <- acspsw03_select %>% filter(EVENTNAME == "2_year_follow_up_y_arm_1" )
+
+fam_basline <- acspsw03_baseline %>% dplyr::select(all_of(c("REL_FAMILY_ID","SRC_SUBJECT_ID")))
+
+acspsw03_followup <- acspsw03_followup %>%dplyr::select(-"REL_FAMILY_ID") %>% 
+                                          left_join(fam_basline, by = "SRC_SUBJECT_ID")
+
+acspsw03_select <- bind_rows(acspsw03_baseline,acspsw03_followup)
+
+demo <- read.csv("/Volumes/sci-psy-narun/abcd-data-release-5.1/core/abcd-general/abcd_p_demo.csv", na = c("", "NA", "999", "777"))
+names(demo) <-toupper(colnames(demo))
+demo_select <- demo %>% filter(EVENTNAME %in% c("baseline_year_1_arm_1","2_year_follow_up_y_arm_1" ))
+
+
+
+ACS <- left_join(demo_select,acspsw03_select,by =c("SRC_SUBJECT_ID","EVENTNAME"))
+#knitr::kable(glimpse(ACS))
+
+#race_ethnicity
+#1 = White; 2 = Black; 3 = Hispanic; 4 = Asian; 5 = Other
+
+# guardian-report relationship
+# Relationship of the participant in his or her family
+# 0 = single; 1 = sibling; 2 = twin; 3 = triplet
+# ACS %>% count(REL_RELATIONSHIP)
+
+ACSselected <- ACS %>% 
+  dplyr::select(all_of(c("SRC_SUBJECT_ID", "EVENTNAME", "DEMO_SEX_V2", "INTERVIEW_AGE", "RACE_ETHNICITY", 
+                              "REL_FAMILY_ID", "ACS_RAKED_PROPENSITY_SCORE","SITE_ID_L"))) %>%
+  mutate(RACE_ETHNICITY = recode_factor(as.factor(RACE_ETHNICITY),
+                `1` = "White", `2` = "Black", `3` = "Hispanic", `4` = "Asian", `5` = "Other",
+                .default = "White")) %>%
+  mutate(DEMO_SEX_V2 = as.factor(DEMO_SEX_V2)) %>%
+  mutate(REL_FAMILY_ID = as.factor(REL_FAMILY_ID))
+
+ACSselected %>%
+ filter(EVENTNAME =="baseline_year_1_arm_1") %>%
+ skimr::skim()
+
+```
+
+
+
+
+
+## load fitted gfactors from brain imaging and psychopathology
+
+### load brain scan fitted results from stacking models
+
+```{r}
+rf_baseline <- readRDS(paste0(nesi_folder,"stacking_gfactor_modelling/collect_random_forest_results/random_forest_baseline_results.RDS"))
+
+rf_followup <- readRDS(paste0(nesi_folder,"stacking_gfactor_modelling/collect_random_forest_results/random_forest_followup_results.RDS"))
+```
+
+
+
+
+### load the mental health predicted results
+
+```{r}
+psy_pred <- readRDS(paste0(scriptfold,"Common_psy_gene_brain_all/saved_outputs/psychopathology_pls_pred_no_asr_5.1.RData"))
+psy_data_baseline <- psy_pred[["baseline_test_data"]] %>% do.call(rbind,.)
+psy_pred_baseline <- psy_pred[["baseline_test_pred"]] %>% do.call(rbind,.) %>% 
+                           mutate(SRC_SUBJECT_ID = psy_data_baseline$SRC_SUBJECT_ID) %>% 
+                           select( "SRC_SUBJECT_ID","model_predict")
+names(psy_pred_baseline) <- c("SRC_SUBJECT_ID", "Proxy Measure of Mental Health")
+
+psy_data_followup <- psy_pred[["followup_test_data"]] %>% do.call(rbind,.)
+psy_pred_followup <- psy_pred[["followup_test_pred"]] %>% do.call(rbind,.) %>% 
+                           mutate(SRC_SUBJECT_ID = psy_data_followup$SRC_SUBJECT_ID) %>% 
+                           select( "SRC_SUBJECT_ID","model_predict")
+names(psy_pred_followup) <- c("SRC_SUBJECT_ID", "Proxy Measure of Mental Health")
+```
+
+
+### load the social demographic lifestyle developmental predicted results
+
+
+```{r}
+ses_pred <- readRDS(paste0(scriptfold,'genetics_psychopathology_common_scan_all_scripts/ses_pls_pred_5.1', '.RData'))
+
+
+ses_data_baseline <- ses_pred[["baseline_test_data"]] %>% do.call(rbind,.)
+ses_pred_baseline <- ses_pred[["baseline_test_pred"]] %>% do.call(rbind,.) %>% 
+                           mutate(SRC_SUBJECT_ID = ses_data_baseline$SRC_SUBJECT_ID) %>% 
+                           select( "SRC_SUBJECT_ID","model_predict")
+names(ses_pred_baseline) <- c("SRC_SUBJECT_ID", "Proxy Measure of S-D LS Dev Adv")
+
+ses_data_followup <- ses_pred[["followup_test_data"]] %>% do.call(rbind,.)
+ses_pred_followup <- ses_pred[["followup_test_pred"]] %>% do.call(rbind,.) %>% 
+                           mutate(SRC_SUBJECT_ID = ses_data_followup$SRC_SUBJECT_ID) %>% 
+                           select( "SRC_SUBJECT_ID","model_predict")
+names(ses_pred_followup) <- c("SRC_SUBJECT_ID", "Proxy Measure of S-D LS Dev Adv")
+```
+
+### Load in genetics related to cognition predicted results 
+
+
+```{r}
+
+genetics_cog <- readRDS(paste0(scriptfold,'genetics_psychopathology_common_scan_all_scripts/psychopathology_cog_gene_pred_residual_5.1', '.RData'))
+
+
+poly_data_baseline <- genetics_cog[["baseline_test_data"]] %>% map(.,~select(.,SRC_SUBJECT_ID,gfactor)) %>% do.call(rbind,.)
+poly_pred_baseline <- genetics_cog[["baseline_test_pred"]] %>% do.call(rbind,.) %>% 
+                           mutate(SRC_SUBJECT_ID = poly_data_baseline$SRC_SUBJECT_ID) %>% 
+                           select( "SRC_SUBJECT_ID","model_predict")
+names(poly_pred_baseline) <- c("SRC_SUBJECT_ID", "Proxy Measure of Polygenic Scores")
+
+poly_data_followup <- genetics_cog[["followup_test_data"]] %>% map(.,~select(.,SRC_SUBJECT_ID,gfactor)) %>% do.call(rbind,.)
+poly_pred_followup <- genetics_cog[["followup_test_pred"]] %>% do.call(rbind,.) %>% 
+                           mutate(SRC_SUBJECT_ID = poly_data_followup$SRC_SUBJECT_ID) %>% 
+                           select( "SRC_SUBJECT_ID","model_predict")
+names(poly_pred_followup) <- c("SRC_SUBJECT_ID", "Proxy Measure of Polygenic Scores")
+```
+
+### load the computed gfactor
+
+
+
+```{r}
+
+gfactor_list <- readRDS(paste0(scriptfold,'genetics_psychopathology_common_scan_all_scripts/gfactor_scale_seperate_5.1', '.RData'))
+
+
+gfactor_baselie_test <- map(gfactor_list,"output_test_baseline") %>% do.call(rbind,.)
+
+names(gfactor_baselie_test) <- c("SRC_SUBJECT_ID", "Cognitive Abilities")
+
+gfactor_followup_test <- map(gfactor_list,"output_test_followup") %>% do.call(rbind,.)
+names(gfactor_followup_test) <- c("SRC_SUBJECT_ID", "Cognitive Abilities")
+
+```
+
+
+## process loaded brain imaging, Polygenic Scores, mental health and social demographic lifestyle developmental model predictions
+
+Be careful with what site you choose.
+
+```{r}
+
+rf_baseline_pred <- map(rf_baseline,"test_pred")
+rf_baseline_data <- map(rf_baseline,"test_data") %>% do.call(rbind,.)
+rf_baseline_pred_tibble <- map(rf_baseline_pred,"model_predict") %>% do.call(rbind,.) %>% 
+                           mutate(SRC_SUBJECT_ID = rf_baseline_data$SRC_SUBJECT_ID) %>% 
+                           select( "SRC_SUBJECT_ID","model_predict")
+
+names(rf_baseline_pred_tibble) <- c("SRC_SUBJECT_ID","Proxy Measure of Neuroimaging")
+
+
+rf_followup_pred <- map(rf_followup,"test_pred")
+rf_followup_data <- map(rf_followup,"test_data")%>% do.call(rbind,.)
+rf_followup_pred_tibble <- map(rf_followup_pred,"model_predict") %>% do.call(rbind,.) %>% 
+                           mutate(SRC_SUBJECT_ID = rf_followup_data$SRC_SUBJECT_ID) %>% 
+                           select( "SRC_SUBJECT_ID","model_predict")
+names(rf_followup_pred_tibble) <- c("SRC_SUBJECT_ID","Proxy Measure of Neuroimaging")
+
+```
+
+
+
+
+```{r}
+subj_info <- c("SRC_SUBJECT_ID","SITE_ID_L","EVENTNAME")
+
+```
+
+
+### Loading the output
+
+
+```{r}
+
+common_all_baseline <- readRDS(paste0(scriptfold,"Common_psy_gene_brain_all/saved_outputs/common_all_baseline_5.1.RData"))
+
+common_baseline_select <- common_all_baseline %>%  select("SRC_SUBJECT_ID","mental_savg"   )
+#names(common_baseline_select) <- c("SRC_SUBJECT_ID","Commonality of Mental Health, Neuroimaging, \n Polygenic scores, and Socio-Demo Lifestyle Dev")
+names(common_baseline_select) <- c("SRC_SUBJECT_ID","Commonality of all Four Proxy Measures")
+common_all_followup <- readRDS(paste0(scriptfold,"Common_psy_gene_brain_all/saved_outputs/common_all_followup_5.1.RData"))
+
+common_followup_select <- common_all_followup %>%  select("SRC_SUBJECT_ID","mental_savg"   )
+#names(common_followup_select) <- c("SRC_SUBJECT_ID","Commonality of Mental Health, Neuroimaging, \n Polygenic scores, and Socio-Demo Lifestyle Dev")
+names(common_followup_select) <- c("SRC_SUBJECT_ID","Commonality of all Four Proxy Measures")
+
+common_gene_baseline <- readRDS(paste0(scriptfold,"Common_psy_gene_brain_all/saved_outputs/common_gene_baseline_5.1.RData"))
+common_gene_followup <- readRDS(paste0(scriptfold,"Common_psy_gene_brain_all/saved_outputs/common_gene_followup_5.1.RData"))
+
+common_gene_baseline_select <- common_gene_baseline %>%  select("SRC_SUBJECT_ID","mental_savg"   )
+names(common_gene_baseline_select) <- c("SRC_SUBJECT_ID","Commonality: Mental Health, Polygenic scores")
+common_gene_followup_select <- common_gene_followup %>%  select("SRC_SUBJECT_ID","mental_savg"   )
+names(common_gene_followup_select) <- c("SRC_SUBJECT_ID","Commonality: Mental Health, Polygenic scores")
+
+common_brain_baseline <- readRDS(paste0(scriptfold,"Common_psy_gene_brain_all/saved_outputs/common_brain_baseline_5.1.RData"))
+
+common_brain_followup <- readRDS(paste0(scriptfold,"Common_psy_gene_brain_all/saved_outputs/common_brain_followup_5.1.RData"))
+
+
+common_brain_baseline_select <- common_brain_baseline %>%  select("SRC_SUBJECT_ID","mental_savg"   )
+names(common_brain_baseline_select) <- c("SRC_SUBJECT_ID","Commonality: Mental Health, Neuroimaging")
+common_brain_followup_select <- common_brain_followup %>%  select("SRC_SUBJECT_ID","mental_savg"   )
+names(common_brain_followup_select) <- c("SRC_SUBJECT_ID","Commonality: Mental Health, Neuroimaging")
+
+common_ses_baseline <- readRDS(paste0(scriptfold,"Common_psy_gene_brain_all/saved_outputs/common_ses_baseline_5.1.RData"))
+
+common_ses_followup <- readRDS(paste0(scriptfold,"Common_psy_gene_brain_all/saved_outputs/common_ses_followup_5.1.RData"))
+
+common_ses_baseline_select <- common_ses_baseline %>%  select("SRC_SUBJECT_ID","mental_savg"   )
+names(common_ses_baseline_select) <- c("SRC_SUBJECT_ID","Commonality: Mental Health, S-D LS Dev Adv")
+
+common_ses_followup_select <- common_ses_followup %>%  select("SRC_SUBJECT_ID","mental_savg"   )
+names(common_ses_followup_select) <- c("SRC_SUBJECT_ID","Commonality: Mental Health, S-D LS Dev Adv")
+```
+
+```{r}
+
+ACSselected_site <- ACSselected %>%  select(all_of(c("SRC_SUBJECT_ID","EVENTNAME" )))
+
+ACSselected_site_baseline <- ACSselected_site %>% filter(EVENTNAME == "baseline_year_1_arm_1" ) %>% select(-"EVENTNAME")
+ACSselected_site_followup <- ACSselected_site %>% filter(EVENTNAME == "2_year_follow_up_y_arm_1" ) %>% select(-"EVENTNAME")
+
+
+plot_data_baseline <- plyr::join_all(list(ACSselected_site_baseline,gfactor_baselie_test,psy_pred_baseline,rf_baseline_pred_tibble,poly_pred_baseline,ses_pred_baseline,common_brain_baseline_select,common_gene_baseline_select,common_ses_baseline_select,common_baseline_select), by = "SRC_SUBJECT_ID",type = "full") %>% rename(ID = SRC_SUBJECT_ID)
+
+plot_data_followup <- plyr::join_all(list(ACSselected_site_followup,gfactor_followup_test,psy_pred_followup,rf_followup_pred_tibble,poly_pred_followup,ses_pred_followup,common_brain_followup_select,common_gene_followup_select,common_ses_followup_select,common_followup_select), by = "SRC_SUBJECT_ID",type = "full")%>% rename(ID = SRC_SUBJECT_ID)
+
+```
+
+
+## Plotting the missingness
+
+```{r,fig.width=10,fig.height=10}
+
+
+
+
+baseline_na_plot <- naniar::vis_miss(plot_data_baseline)+ 
+  ylab("Baseline Observations")+
+  theme(axis.text.x = element_text(angle = 90))+
+  theme(axis.text.x = element_text(size = 15),                      
+                           axis.text.y = element_text(size = 15),                     
+                           plot.title = element_text(size=15),
+        axis.title.y = element_text(size=15),
+    legend.text=element_text(size=15))+ 
+   theme(legend.position="none")
+
+
+
+followup_na_plot <- naniar::vis_miss(plot_data_followup)+
+    ylab("Followup Observations")+
+  theme(axis.text.x = element_text(size = 15),                      
+                           axis.text.y = element_text(size = 15),                     
+                           plot.title = element_text(size=15),
+        axis.title.y = element_text(size=15),
+    legend.text=element_text(size=15)) + 
+   theme(legend.position="none")+
+    theme(axis.text.x = element_text(angle = 90))
+
+
+
+na_plot_all <-ggpubr::ggarrange(baseline_na_plot,followup_na_plot,
+                  nrow = 1, ncol = 2,widths = c(1,1), heights = c(1,1) ) 
+
+title_na_plot <- ggpubr::annotate_figure(na_plot_all,
+                        top = ggpubr::text_grob("Number of Missing Observations in \n all Four Proxy Measurem and Commonality Analysis",size=25, face = "bold")) 
+
+title_na_plot
+```

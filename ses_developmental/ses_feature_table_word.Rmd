@@ -1,0 +1,85 @@
+---
+title: "Untitled"
+output: word_document
+author: "Yue Wang and Narun P"
+date:  "`r format(Sys.time(), '%d %b, %Y')`"
+---
+
+
+# Setting up libraries
+
+
+```{r setup, include=FALSE} 
+library(knitr)
+opts_chunk$set(results = 'asis',     # Can also be set at chunk level
+              comment = NA,
+              prompt  = FALSE,
+              cache   = FALSE)
+library(summarytools)
+st_options(plain.ascii = FALSE,       # Always use in Rmd documents
+           style       = "rmarkdown", # Always use in Rmd documents
+           subtitle.emphasis = FALSE) # Improves layout w/ some themes
+```
+
+
+# Loading data
+
+## Setting up paths
+
+Using ABCD 4.0 
+
+```{r, cache=FALSE, include=FALSE}
+### ubuntu and windows directories
+#ABCD3Fold <- '/Volumes/wd/ABCD3/'
+#ABCD3Fold <-"~/OneDrive - University of Otago/ABCD3/"
+#ABCD4Fold <-"/media/Data/ABCD/ABCD4/"
+#ABCD3Fold <-"/media/Data/ABCD/ABCD3/"
+#scriptfold = "/media/Data/Yue script/"
+
+# mac directories
+ABCD4Fold <-"/Volumes/Data/ABCD/ABCD4/"
+ABCD3Fold <-"/Volumes/Data/ABCD/ABCD3/"
+scriptfold = "/Volumes/Data/Yue script/"
+
+#ABCD4Fold <- "//np-qnapa/Data/ABCD/ABCD4/"
+#setwd(paste0(ABCD3Fold, "Analysis/CognitionP"))
+dataFold <- paste0(ABCD4Fold, "ABCD4SQL/")
+utilFold <- paste0(ABCD3Fold, "Analysis/utilFunc/")
+
+gene_fold <- paste0(ABCD4Fold, "RicPGS/RicFIles20_Feb_2022/abcd-release-3.0_chrall_0.8-mac5-hg19-eur-qc-v9/")
+
+```
+
+
+```{r}
+
+table_features_no_dup_baseline <- readRDS(paste0(scriptfold,'Common_psy_gene_brain_all/saved_outputs/scatter_plots/ses_table_features_no_dup_baseline_5.1', '.RData'))
+table_features_no_dup_followup <- readRDS(paste0(scriptfold,'Common_psy_gene_brain_all/saved_outputs/scatter_plots/ses_table_features_no_dup_followup_5.1', '.RData'))
+```
+
+# Compile tables
+
+## complie the baseline tables
+
+```{r,}
+
+dfSummary(table_features_no_dup_baseline, 
+          plain.ascii  = FALSE, 
+          style        = "grid", 
+          graph.magnif = 0.75,
+          tmp.img.dir  = "/tmp")
+
+```
+
+
+
+```{r}
+
+
+dfSummary(table_features_no_dup_followup, 
+          plain.ascii  = FALSE, 
+          style        = "grid", 
+          graph.magnif = 0.75, 
+          tmp.img.dir  = "/tmp")
+
+```

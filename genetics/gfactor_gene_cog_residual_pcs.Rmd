@@ -1,0 +1,1190 @@
+---
+title: "Elastic Net Feature importance of Cognitive Abilities ~ Genes for baseline and follow-up."
+author: "Yue Wang, Narun Pat"
+date:  "`r format(Sys.time(), '%d %b, %Y')`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: united
+    number_sections: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+options(scipen = 999)
+```
+
+
+# Setting up the environment
+
+## Reset workspace and load libraries  
+
+This analysis uses ABCD Release 5.1
+
+```{r , results='hide', message=FALSE, warning=FALSE}
+rm(list=ls())
+gc()
+```
+
+```{r , results='hide', message=FALSE, warning=FALSE}
+library(tidyverse)
+library(qgraph)
+library(pander)
+library(summarytools)
+library(sjPlot)
+library(sjmisc)
+library(sjlabelled)
+library(tidymodels)
+library(knitr)
+library(extrafont)
+## for poisson class of elastic net
+library(poissonreg)
+```
+
+
+## Setting up paths
+
+Using ABCD 4.0 
+
+```{r, cache=FALSE, include=FALSE}
+### ubuntu and windows directories
+#ABCD3Fold <- '/Volumes/wd/ABCD3/'
+#ABCD3Fold <-"~/OneDrive - University of Otago/ABCD3/"
+#ABCD4Fold <-"/media/Data/ABCD/ABCD4/"
+#ABCD3Fold <-"/media/Data/ABCD/ABCD3/"
+#scriptfold = "/media/Data/Yue script/"
+
+# mac directories
+ABCD4Fold <-"/Volumes/Data/ABCD/ABCD4/"
+ABCD3Fold <-"/Volumes/Data/ABCD/ABCD3/"
+scriptfold = "/Volumes/Data/Yue script/"
+
+#ABCD4Fold <- "//np-qnapa/Data/ABCD/ABCD4/"
+#setwd(paste0(ABCD3Fold, "Analysis/CognitionP"))
+dataFold <- paste0(ABCD4Fold, "ABCD4SQL/")
+utilFold <- paste0(ABCD3Fold, "Analysis/utilFunc/")
+
+datafolder_5.1 = '/Volumes/sci-psy-narun/abcd-data-release-5.1/core/'
+
+gene_fold <- paste0(ABCD4Fold, "RicPGS/RicFIles20_Feb_2022/abcd-release-3.0_chrall_0.8-mac5-hg19-eur-qc-v9/")
+
+```
+
+```{r}
+source(paste0(scriptfold,"stacking_gfactor_modelling/r_functions_5.1.R"))
+
+```
+
+set up parallel
+
+```{r}
+# parallel for ubuntu
+doParallel::registerDoParallel(cores=15)  
+
+## this one works for ubuntu but slow
+#library(doFuture)
+#registerDoFuture()
+#plan(multicore(workers = 30))
+
+### parallel for windows
+
+#library(doFuture)
+#registerDoFuture()
+#plan(multisession(workers = 30))
+```
+
+# Loading up data
+
+
+## site information
+
+```{r, cache = FALSE, warning=FALSE}
+###loading site and scanner information
+acspsw03 <- read.csv("/Volumes/sci-psy-narun/abcd-data-release-5.1/core/abcd-general/abcd_y_lt.csv", na = c("", "NA", "999", "777"))
+names(acspsw03) <-toupper(colnames(acspsw03))
+acspsw03_select <- acspsw03 %>% filter(EVENTNAME %in% c("baseline_year_1_arm_1","2_year_follow_up_y_arm_1" ))
+
+acspsw03_baseline <- acspsw03_select%>% filter(EVENTNAME =="baseline_year_1_arm_1")
+```
+
+## loading genetics data
+
+Loading up the pre-computed genes data tables. All of the files are related to the cognitive abilities.
+
+
+regular expression: [0]{2} 2 zeros in the series, [:digit:]{5} 5 digits
+
+Only load the ones related to the cognition without the one with education
+
+```{r}
+
+
+  
+General_Cognitive_Function_Davies <- read.table(paste0(gene_fold,"davies-lam-harris-2018-cognition/davies-lam-harris-2018-cognition-abcd-release-3.0_chrall_0.8-mac5-hg19-eur-qc-v9-profiles.csv"),header = TRUE)%>% 
+                                  mutate(SUBJECTKEY = str_remove_all(.data$iid, "AB[0]{2}[:digit:]{5}\\_"))%>%
+                                  select(-iid)%>%
+                                 mutate(SUBJECTKEY = str_remove_all(.data$SUBJECTKEY,"\\`")) %>% 
+                                 rename(SRC_SUBJECT_ID= SUBJECTKEY )
+
+
+General_Cognitive_Function_Savage<- read.table(paste0(gene_fold,"savage-jansen-stringer-2018-intelligence/savage-jansen-stringer-2018-intelligence-abcd-release-3.0_chrall_0.8-mac5-hg19-eur-qc-v9-profiles.csv"),header = TRUE)%>% 
+                                  mutate(SUBJECTKEY = str_remove_all(.data$iid, "AB[0]{2}[:digit:]{5}\\_"))%>%
+                                  select(-iid)%>%
+                                 mutate(SUBJECTKEY = str_remove_all(.data$SUBJECTKEY,"\\`"))%>% 
+                                 rename(SRC_SUBJECT_ID= SUBJECTKEY )
+
+
+
+Cognitive_Performance_lee <- read.table(paste0(gene_fold,"lee-wedow-okbay-2018-cognitive/lee-wedow-okbay-2018-cognitive-abcd-release-3.0_chrall_0.8-mac5-hg19-eur-qc-v9-profiles.csv"),header = TRUE)%>% 
+                                  mutate(SUBJECTKEY = str_remove_all(.data$iid, "AB[0]{2}[:digit:]{5}\\_"))%>%
+                                  select(-iid)%>%
+                                 mutate(SUBJECTKEY = str_remove_all(.data$SUBJECTKEY,"\\`"))%>% 
+                                 rename(SRC_SUBJECT_ID= SUBJECTKEY )   
+```
+
+### Cleaning genetics data
+
+Some IDs are not found in the site data table. So those IDs are filtered out. After trying to find the most similar IDs in the site data table. We can found some of those IDs are already in the genetics data. So those with the wrong IDs are removed.
+
+
+```{r}
+  General_Cognitive_Function_Davies <- General_Cognitive_Function_Davies[order(General_Cognitive_Function_Davies$SRC_SUBJECT_ID),]
+
+  General_Cognitive_Function_Savage <- General_Cognitive_Function_Savage[order(General_Cognitive_Function_Savage$SRC_SUBJECT_ID),]
+
+Cognitive_Performance_lee <- Cognitive_Performance_lee[order(Cognitive_Performance_lee$SRC_SUBJECT_ID),]
+## check whether the ID variables are the same
+identical(General_Cognitive_Function_Davies$SRC_SUBJECT_ID,General_Cognitive_Function_Savage$SRC_SUBJECT_ID)
+
+identical(General_Cognitive_Function_Davies$SRC_SUBJECT_ID,Cognitive_Performance_lee$SRC_SUBJECT_ID)
+## find out the IDs that are in the genetic data table not in the site data table 
+#uncorrected_id <- setdiff(General_Cognitive_Function_Davies$SRC_SUBJECT_ID,Site_baseline$SRC_SUBJECT_ID)
+## These are the mismatched IDs if the previous code does not run, run this
+uncorrected_id <- c("NDAR_INV3GFFD7GXB","NDAR_INV3PTRFM5","NDAR_INV44RDE6R","NDAR_INV5LMTFDU","NDAR_INV64PZCK82","NDAR_INV67KWNPR7","NDAR_INV6D8NMY0B","NDAR_INV9PUZ8D0B","NDAR_INVANUGPBRY","NDAR_INVK6RANURAB","NDAR_INVK71S0G4Z","NDAR_INVLW9XT5PS","NDAR_INVP39ZM2J","NDAR_INVPF0NSFWX","NDAR_INVTBYKL2UL","NDAR_INVUKK77ZR","NDAR_INVURZU1N9B","NDAR_INVVR39TB4C","NDAR_INVX6KVGNJ","NDAR_INVYUTT0RGD","NDARINVPWLFYWTX")
+
+
+corrected_id <- c("NDAR_INV3GFD7GXB","NDAR_INV3PTPRFM5","NDAR_INVV44RDE6R","NDAR_INV5LM4TFDU","NDAR_INV6UPZCK82","NDAR_INV67KWVPR7","NDAR_INVGD8NMY0B","NDAR_INV9PUA8D0B","NDAR_INVANUGPBR4","NDAR_INVK6RANRAB","NDAR_INVK7150G4Z","NDAR_INVLW9XT5P3","NDAR_INVP3G9ZM2J","NDAR_INVPF0N5FWX","NDAR_INVTB7KL2UL","NDAR_INVNUKK77ZR","NDAR_INVURZU1N9V","NDAR_INVVR93TB4C","NDAR_INVNX6KVGNJ","NDAR_INVYUTY0RGD","NDAR_INVPWLFYWTX")  
+
+change_ID_tibble <- tibble(wrong_id = uncorrected_id,
+                          right_id = corrected_id )
+
+change_ID_tibble_keep <- change_ID_tibble%>%
+                         filter(right_id %in% setdiff(corrected_id,General_Cognitive_Function_Davies$SRC_SUBJECT_ID))
+
+change_ID_tibble_remove <- change_ID_tibble%>%
+                         filter(!right_id %in% setdiff(corrected_id,General_Cognitive_Function_Davies$SRC_SUBJECT_ID))
+
+print(change_ID_tibble_keep)
+
+print(change_ID_tibble_remove)
+
+
+General_Cognitive_Function_Davies <- General_Cognitive_Function_Davies %>% 
+                                     filter(!SRC_SUBJECT_ID %in% change_ID_tibble_remove$wrong_id)
+
+General_Cognitive_Function_Savage<- General_Cognitive_Function_Savage %>% 
+                                     filter(!SRC_SUBJECT_ID %in% change_ID_tibble_remove$wrong_id)
+
+Cognitive_Performance_lee<- Cognitive_Performance_lee %>% 
+                                     filter(!SRC_SUBJECT_ID %in% change_ID_tibble_remove$wrong_id)
+
+for(i in 1:dim(change_ID_tibble_keep)[1]){
+  wrong_id  <- change_ID_tibble_keep$wrong_id[i]
+  right_id <- change_ID_tibble_keep$right_id[i]
+  General_Cognitive_Function_Davies$SRC_SUBJECT_ID[which(General_Cognitive_Function_Davies$SRC_SUBJECT_ID== wrong_id)] <- right_id
+  General_Cognitive_Function_Savage$SRC_SUBJECT_ID[which(General_Cognitive_Function_Savage$SRC_SUBJECT_ID== wrong_id)] <- right_id
+  Cognitive_Performance_lee$SRC_SUBJECT_ID[which(Cognitive_Performance_lee$SRC_SUBJECT_ID== wrong_id)] <- right_id
+}
+### the following 6 subjects do not have information about site in the ABCD 5.1 release but in ABCD 4.0 release
+setdiff(General_Cognitive_Function_Davies$SRC_SUBJECT_ID,acspsw03_baseline$SRC_SUBJECT_ID)
+
+### count site with genetics data
+left_join(General_Cognitive_Function_Davies,acspsw03_baseline,by = "SRC_SUBJECT_ID")%>%
+count(SITE_ID_L)  
+```
+
+```{r, cache=FALSE}
+
+vision_idx <- tibble::as_tibble(read.csv(paste0(datafolder_5.1, "neurocognition/nc_y_svs.csv"),header = TRUE)) 
+names(vision_idx) <-toupper(colnames(vision_idx))
+
+vision_idx <- vision_idx%>% 
+  mutate(visionProb = ifelse(SNELLEN_VA_Y == 0 | SNELLEN_VA_Y == 1 | VIS_FLG == 2, 1, 0))
+
+
+vision_removed <- vision_idx %>% filter(SNELLEN_VA_Y == 0 | SNELLEN_VA_Y == 1 | VIS_FLG == 2)
+
+removed_subj <- vision_removed$SRC_SUBJECT_ID
+
+length(removed_subj)
+```
+
+
+
+## Family relationship
+
+```{r, cache = FALSE, warning=FALSE}
+acspsw03 <- read.csv("/Volumes/sci-psy-narun/abcd-data-release-5.1/core/abcd-general/abcd_y_lt.csv", na = c("", "NA", "999", "777"))
+names(acspsw03) <-toupper(colnames(acspsw03))
+acspsw03_select <- acspsw03 %>% filter(EVENTNAME %in% c("baseline_year_1_arm_1","2_year_follow_up_y_arm_1" ))
+
+### write NAs of the followup family ids to be the family IDs at baseline
+acspsw03_baseline <- acspsw03_select %>% filter(EVENTNAME == "baseline_year_1_arm_1" )
+acspsw03_followup <- acspsw03_select %>% filter(EVENTNAME == "2_year_follow_up_y_arm_1" )
+
+fam_basline <- acspsw03_baseline %>% dplyr::select(all_of(c("REL_FAMILY_ID","SRC_SUBJECT_ID")))
+
+acspsw03_followup <- acspsw03_followup %>%dplyr::select(-"REL_FAMILY_ID") %>% 
+                                          left_join(fam_basline, by = "SRC_SUBJECT_ID")
+
+acspsw03_select <- bind_rows(acspsw03_baseline,acspsw03_followup)
+
+demo <- read.csv("/Volumes/sci-psy-narun/abcd-data-release-5.1/core/abcd-general/abcd_p_demo.csv", na = c("", "NA", "999", "777"))
+names(demo) <-toupper(colnames(demo))
+demo_select <- demo %>% filter(EVENTNAME %in% c("baseline_year_1_arm_1","2_year_follow_up_y_arm_1" ))
+
+
+
+
+ACS <- left_join(demo_select,acspsw03_select,by =c("SRC_SUBJECT_ID","EVENTNAME"))
+
+# guardian-report relationship
+# Relationship of the participant in his or her family
+# 0 = single; 1 = sibling; 2 = twin; 3 = triplet
+# ACS %>% count(REL_RELATIONSHIP)
+
+ACSselected <- ACS %>% 
+  dplyr::select("SRC_SUBJECT_ID", "EVENTNAME", "DEMO_SEX_V2", "INTERVIEW_AGE", "RACE_ETHNICITY", 
+                              "REL_FAMILY_ID", "ACS_RAKED_PROPENSITY_SCORE","SITE_ID_L") %>%
+  mutate(REL_FAMILY_ID = as.factor(REL_FAMILY_ID))
+
+ACSselected %>%
+ filter(EVENTNAME =="baseline_year_1_arm_1") %>%
+ skimr::skim()#knitr::kable(glimpse(ACS))
+
+#race_ethnicity
+#1 = White; 2 = Black; 3 = Hispanic; 4 = Asian; 5 = Other
+
+# guardian-report relationship
+# Relationship of the participant in his or her family
+# 0 = single; 1 = sibling; 2 = twin; 3 = triplet
+# ACS %>% count(REL_RELATIONSHIP)
+
+ACSselected %>%
+ filter(EVENTNAME =="baseline_year_1_arm_1") %>%
+ skimr::skim()
+
+
+ACSselected %>%
+ filter(EVENTNAME =="2_year_follow_up_y_arm_1") %>%
+ skimr::skim()
+
+ACSselected_baseline <- ACSselected %>%
+ filter(EVENTNAME =="baseline_year_1_arm_1")
+### check whether the corrected IDs are all white as these are suppose to be in the genetics data
+ACSselected_baseline_selected <-ACSselected_baseline %>% filter(SRC_SUBJECT_ID %in% change_ID_tibble_keep$right_id)
+
+print(ACSselected_baseline_selected$RACE_ETHNICITY)
+```
+
+
+
+## Cognition
+
+### Load neuro cognitive measures
+
+The response variables are loaded gfactor from precomputed results.
+
+These cognitive scores are loaded because of the selection rule of the threshold of the poly-genetic scores. The threshold score are selected based on its correlation with the gfactor. Those gfactors are computed based on the batches. However due to the huge difference in subject number between the genetics table and the cognition score table. Gfactors are computed right before correlation.
+
+
+
+```{r, cache=FALSE}
+
+nihtb <- read.csv(paste0(datafolder_5.1, "neurocognition/nc_y_nihtb.csv"), na = c("", "NA", "999", "777"))
+names(nihtb) <-toupper(colnames(nihtb))
+
+ravlt <- read.csv(paste0(datafolder_5.1, "neurocognition/nc_y_ravlt.csv"), na = c("", "NA", "999", "777"))
+names(ravlt) <-toupper(colnames(ravlt))
+
+
+vision_idx <- tibble::as_tibble(read.csv(paste0(datafolder_5.1, "neurocognition/nc_y_svs.csv"),header = TRUE)) 
+names(vision_idx) <-toupper(colnames(vision_idx))
+
+vision_idx <- vision_idx%>% 
+  mutate(visionProb = ifelse(SNELLEN_VA_Y == 0 | SNELLEN_VA_Y == 1 | VIS_FLG == 2, 1, 0))
+
+#vision_idx %>% select(SNELLEN_VA_Y, VIS_FLG, visionProb) %>%  arrange(SNELLEN_VA_Y)
+```
+
+
+
+
+### sum cognition
+
+
+```{r, cache = FALSE, warning=FALSE}
+
+sumCog <- plyr::join_all(list(nihtb, ravlt, vision_idx), 
+               by=c('SRC_SUBJECT_ID','EVENTNAME'), type='full') %>%
+  select(SRC_SUBJECT_ID,EVENTNAME,
+         NIHTBX_FLANKER_UNCORRECTED, NIHTBX_CARDSORT_UNCORRECTED, NIHTBX_PATTERN_UNCORRECTED, 
+         NIHTBX_PICVOCAB_UNCORRECTED, NIHTBX_READING_UNCORRECTED, NIHTBX_PICTURE_UNCORRECTED,
+         PEA_RAVLT_LD_TRIAL_VII_TC, NIHTBX_LIST_UNCORRECTED,
+         NIHTBX_FLUIDCOMP_UNCORRECTED, NIHTBX_CRYST_UNCORRECTED, NIHTBX_TOTALCOMP_UNCORRECTED, visionProb)
+  
+sumCog %>%
+  filter(EVENTNAME =="baseline_year_1_arm_1") %>% 
+  select(-1:-2) %>%
+  skimr::skim()
+
+sumCog %>%
+  filter(EVENTNAME =="2_year_follow_up_y_arm_1") %>% 
+  select(-1:-2) %>%
+  skimr::skim()
+
+```
+
+### compute and process gfactor
+
+
+```{r}
+
+TaskDVs1Batch = c("NIHTBX_PICVOCAB_UNCORRECTED", 
+                  "NIHTBX_READING_UNCORRECTED",
+              "NIHTBX_FLANKER_UNCORRECTED",
+              "NIHTBX_PATTERN_UNCORRECTED",
+              "NIHTBX_PICTURE_UNCORRECTED",
+               "PEA_RAVLT_LD_TRIAL_VII_TC")
+
+sumCog_select <- sumCog %>% 
+  select(all_of(TaskDVs1Batch),all_of(c("SRC_SUBJECT_ID","EVENTNAME" )))
+  
+subj_info <- c("SRC_SUBJECT_ID","EVENTNAME","SITE_ID_L")
+
+sumCog_select <- left_join(sumCog_select,ACSselected,by =c("SRC_SUBJECT_ID","EVENTNAME"))%>%
+  drop_na(SITE_ID_L) %>%
+  filter(SITE_ID_L != "site22")%>%
+  select(all_of(TaskDVs1Batch),all_of(subj_info))
+
+
+```
+
+
+
+```{r}
+
+
+
+site_col <-  sumCog_select %>%
+  distinct(SITE_ID_L) %>% 
+  arrange(SITE_ID_L) 
+
+site_list <- as.list(site_col$SITE_ID_L)
+
+site_char <- as.character(unlist(site_col$SITE_ID_L))
+
+
+sumCog_select_split <- map(site_list, ~split_func(.x,data_input = sumCog_select)) 
+```
+
+### Gfactor CFA model
+
+
+```{r}
+
+NeuroCog2ndOrder <-'
+Language =~ NIHTBX_PICVOCAB_UNCORRECTED + NIHTBX_READING_UNCORRECTED 
+CognitiveFlexibity =~ NIHTBX_FLANKER_UNCORRECTED + NIHTBX_PATTERN_UNCORRECTED 
+MemoryRecall =~ NIHTBX_PICTURE_UNCORRECTED + PEA_RAVLT_LD_TRIAL_VII_TC
+g =~ NA*Language + CognitiveFlexibity  + MemoryRecall #estimate the loading of GenAbi -> as opposed to using it as a marker
+g ~~ 1*g #need to constrain variance to 1'
+
+```
+
+
+
+
+# Genes data processing and loading in the response variable
+
+## Processing the genes dataset
+
+Sorting out the names
+
+```{r}
+
+
+genetics_data_list <- list( General_Cognitive_Function_Davies= General_Cognitive_Function_Davies,
+General_Cognitive_Function_Savage=General_Cognitive_Function_Savage,
+Cognitive_Performance_lee=Cognitive_Performance_lee
+)
+
+#genetics_score_vec <-c("p5e_1_score",  "p1e_1_score",  "p5e_2_score",  "p1e_2_score",  "p1e_3_score",  "p1e_4_score", "p1e_5_score")
+genetics_names <- names(genetics_data_list)
+
+```
+
+Select the best score across the training set and then do the modelling
+
+
+```{r}
+
+
+## this function computes the correlation and one input variable.
+## Then it record the correlation and the variable name
+correlation_cross_site <- function(split_input, score_name_input){
+  cor_data <- split_input
+  cor_list <- score_name_input %>% map(.,~cor(cor_data$gfactor,    
+                                              cor_data[[.]],
+                                              use = "pairwise.complete.obs"))%>%
+              as.numeric()
+  cor_tibble <- tibble(correlation = cor_list, score_names = score_name_input)
+  return(cor_tibble)
+}
+
+### this function average the correlation across sites and find the best score of correlations
+genetics_cbcl_correlation <- function(data_input){
+  score_names_vec <- data_input %>% select(ends_with("_score"))%>% 
+                                    colnames()
+  corr_list <- correlation_cross_site(split_input = data_input, score_name_input = score_names_vec)
+  
+  ### compute mean of all those scores across sites
+  score_cor_list <- score_names_vec %>% map(., ~filter(corr_list,score_names == .))
+  mean_score_cor_list <- score_cor_list %>% map(., ~mean(.[["correlation"]]))%>% as.numeric()
+  mean_cor_tibble <- tibble(correlation = mean_score_cor_list, score_name = score_names_vec)
+  best_score_name <- mean_cor_tibble$score_name[which(mean_cor_tibble$correlation == max(mean_cor_tibble$correlation))]
+  return(list(cor_tibble = corr_list, mean_cor_tibble = mean_cor_tibble, best_score_name = best_score_name))
+  }
+```
+
+Processing genetics scores
+
+```{r}
+
+genetics_score_extract <- function(score_select_input, tibble_input,score_name_input){
+  selected_tibble <- tibble_input %>% select(all_of(c("SRC_SUBJECT_ID",score_select_input)))
+  names(selected_tibble) <- c("SRC_SUBJECT_ID",score_name_input)
+  return(selected_tibble)
+}
+
+### pc scores are the same across all files
+genetics_pc_tibble <- General_Cognitive_Function_Davies %>% select(all_of(c("SRC_SUBJECT_ID",paste0("pc", seq(1:4))))) 
+
+
+genetics_data_processing <- function(data_list= genetics_data_list, split_input){
+  ### get the subject ID and the site information
+   training_subj_site <-  training(split_input)%>% 
+                                            filter(EVENTNAME == "baseline_year_1_arm_1")%>%
+                                            select(all_of(c("SRC_SUBJECT_ID", "SITE_ID_L")))
+  test_subj_site <- testing(split_input)%>% 
+                                            filter(EVENTNAME == "baseline_year_1_arm_1")%>%
+                                            select(all_of(c("SRC_SUBJECT_ID", "SITE_ID_L")))
+  
+  ### compute gfactors seperately 
+  computed_gfactor_list <- gfactor_cross_sites_seperate(split_input = split_input)
+  ### join the response with gfactors
+train_data_list <- data_list %>% map(.,~left_join(.,computed_gfactor_list[["output_train_baseline"]],by = "SRC_SUBJECT_ID"))
+test_data_list <- data_list %>% map(.,~left_join(.,computed_gfactor_list[["output_test_baseline"]],by = "SRC_SUBJECT_ID"))
+ genetics_cor_list <- train_data_list %>% map(.,~genetics_cbcl_correlation(data_input = .))
+
+   ### get the genetics feature names
+best_score_names <- map(genetics_cor_list,"best_score_name")
+
+cor_list <- map(genetics_cor_list,"cor_tibble")
+
+cor_tibble <- map2(.x = cor_list,.y =genetics_names, ~mutate(.x, genetics_names = .y) )%>% do.call(rbind,.)
+
+
+
+genetics_score_features <- paste0(genetics_names,"_", best_score_names)
+
+### extract different scores from different data table
+### join all the selected variables into one datasets
+
+train_score_selected <- pmap(list(train_data_list,best_score_names,genetics_score_features),
+                                ~genetics_score_extract(score_select_input = ..2,
+                                                        tibble_input = ..1,
+                                                        score_name_input=..3))
+train_score_tibble <- plyr::join_all(train_score_selected, by = "SRC_SUBJECT_ID", type = "full")
+
+
+output_data_train <- plyr::join_all(list(train_score_tibble,
+                                         training_subj_site,
+                                         genetics_pc_tibble),by = "SRC_SUBJECT_ID")%>% drop_na()
+
+test_score_selected <- pmap(list(test_data_list,best_score_names,genetics_score_features),
+                                ~genetics_score_extract(score_select_input = ..2,
+                                                        tibble_input = ..1,
+                                                        score_name_input=..3))
+test_score_tibble <- plyr::join_all(test_score_selected, by = "SRC_SUBJECT_ID", type = "full")
+features <- c(paste0("pc",seq(1:4)),genetics_score_features)
+
+output_data_test <- plyr::join_all(list(test_score_tibble,
+                                        test_subj_site,
+                                        genetics_pc_tibble),by = "SRC_SUBJECT_ID")%>% drop_na()
+return(list(output_data_train=output_data_train,
+            output_data_test=output_data_test,
+            best_score_names=best_score_names,
+            genetics_score_features=genetics_score_features,
+            features = features,
+            genetics_cor_list=genetics_cor_list,
+            cor_tibble = cor_tibble))
+    }
+
+
+
+genetics_score_list <- sumCog_select_split %>% map(.,~genetics_data_processing(split_input = . )) 
+
+names(genetics_score_list) <- site_char
+
+### join with gfactor list
+genetics_score_train_data <- map(genetics_score_list,"output_data_train")
+
+genetics_score_test_data <- map(genetics_score_list,"output_data_test")
+
+genetics_score_features <- map(genetics_score_list,"features")
+
+
+genetics_cog_score_feature_names <- map(genetics_score_list,"genetics_score_features")
+
+#check whether the features across sites are the same
+
+map(.x = genetics_score_features,~identical(genetics_score_features[["site01"]],.x))
+## print all the score names
+genetics_cog_score_feature_names%>% print()
+```
+
+checking the dimensions of genetics data after processing
+
+The difference in the number of the observations is because the site 22 (with the number of observation 19) is dropped.
+
+```{r}
+
+dim_genetics_score_test_data<- genetics_score_test_data%>% map(.,~dim(.))%>% do.call(rbind,.)
+
+sum(dim_genetics_score_test_data[,1])
+
+
+genetics_score_test_data_site <- genetics_score_test_data %>% map(.,~select(.,all_of(c("SRC_SUBJECT_ID" ,"SITE_ID_L"))))%>% 
+                          do.call(rbind,.) %>% 
+                          filter(! SRC_SUBJECT_ID %in% removed_subj) 
+genetics_score_test_data_site%>% nrow()
+
+```
+
+
+Select the output and find the correlation scores
+
+```{r}
+
+genetics_cor_list <- map(genetics_score_list,"genetics_cor_list")
+
+genetics_cor_all <- map_depth(.x = genetics_cor_list,.depth = 2, "cor_tibble") 
+
+genetics_cor_tibble <-map(genetics_score_list,"cor_tibble")
+
+genetics_cor_tibble_all <- map2(.x =genetics_cor_tibble ,.y = site_char,~mutate(.x, site = .y ))%>% do.call(rbind,.)
+```
+
+
+## load in precomputed gfactor score
+
+```{r,eval=TRUE,echo=FALSE}
+gfactor_list <- readRDS(paste0(scriptfold,'genetics_psychopathology_common_scan_all_scripts/gfactor_scale_seperate_5.1', '.RData'))
+```
+
+
+```{r}
+
+baseline_train_gfactor <- map(gfactor_list,"output_train_baseline")
+baseline_test_gfactor <- map(gfactor_list,"output_test_baseline")
+followup_train_gfactor <- map(gfactor_list,"output_train_followup")
+followup_test_gfactor <- map(gfactor_list,"output_test_followup")
+
+
+```
+
+Visualising NAs in the datasets
+
+```{r}
+
+baseline_test_tibble <- baseline_test_gfactor %>% do.call(rbind,.)
+
+General_Cognitive_Function_Davies_gfactor <- left_join(General_Cognitive_Function_Davies,
+                                                       baseline_test_tibble, by="SRC_SUBJECT_ID")
+
+naniar::vis_miss(General_Cognitive_Function_Davies_gfactor)
+
+naniar::gg_miss_var(General_Cognitive_Function_Davies_gfactor)
+
+```
+
+After joining with gfactor, around 3.79% of the subjects are dropped because of the missing data in gfactor. 
+
+
+
+## Join the loaded gfactor data and the computed genes
+
+
+```{r}
+genetics_gfactor_baseline_train <-map2(.x=genetics_score_train_data,.y =baseline_train_gfactor,~full_join(.x,.y,by="SRC_SUBJECT_ID")%>%
+                                    drop_na())
+
+genetics_gfactor_baseline_test <- map2(.x=genetics_score_test_data,.y =baseline_test_gfactor,~full_join(.x,.y,by="SRC_SUBJECT_ID")%>%
+                                    drop_na())
+
+genetics_gfactor_followup_train <- map2(.x=genetics_score_train_data,.y =followup_train_gfactor,~full_join(.x,.y,by="SRC_SUBJECT_ID")%>%
+                                    drop_na())
+
+genetics_gfactor_followup_test <- map2(.x=genetics_score_test_data,.y =followup_test_gfactor,~full_join(.x,.y,by="SRC_SUBJECT_ID")%>%
+                                    drop_na())
+
+genetics_gfactor_baseline_train_select <- genetics_gfactor_baseline_train %>% map(.,~select(.,-all_of(c("SRC_SUBJECT_ID","SITE_ID_L"))))
+
+genetics_gfactor_baseline_test_select <- genetics_gfactor_baseline_test%>% map(.,~select(.,-all_of(c("SRC_SUBJECT_ID","SITE_ID_L"))))
+
+genetics_gfactor_followup_train_select <- genetics_gfactor_followup_train%>% map(.,~select(.,-all_of(c("SRC_SUBJECT_ID","SITE_ID_L"))))
+
+genetics_gfactor_followup_test_select <- genetics_gfactor_followup_test%>% map(.,~select(.,-all_of(c("SRC_SUBJECT_ID","SITE_ID_L"))))
+
+
+```
+
+
+## compute residuals against all the pc scores
+
+```{r}
+### In the scale method, baseline mean and sd is used to scale the followup.
+
+
+
+genetics_pc_residual_computing <- function(data_input = genetics_gfactor_baseline_train[[1]],
+                                           gene_score_name = genetics_cog_score_feature_names[[1]]){
+  ## write the formula according to the score selected
+  pc_score_string <- paste("pc1","pc2","pc3","pc4", sep = "+")
+  General_Cognitive_Function_Davies_formula <- paste0(gene_score_name[1],"~",pc_score_string)%>% as.formula()
+  General_Cognitive_Function_Savage_formula <- paste0(gene_score_name[2],"~",pc_score_string)%>% as.formula()
+  Cognitive_Performance_lee_formula <- paste0(gene_score_name[3],"~",pc_score_string)%>% as.formula()
+  ### linear regression model, the residuals have mean close to 0
+  General_Cognitive_Function_Davies_mod <- lm(General_Cognitive_Function_Davies_formula,data = data_input)
+  General_Cognitive_Function_Savage_mod <- lm(General_Cognitive_Function_Savage_formula,data = data_input)
+  Cognitive_Performance_lee_mod <- lm(Cognitive_Performance_lee_formula,data = data_input)
+  ### get the residuals
+  General_Cognitive_Function_Davies_residuals <- General_Cognitive_Function_Davies_mod%>% residuals()%>%scale()
+  General_Cognitive_Function_Savage_residuals <- General_Cognitive_Function_Savage_mod%>% residuals()%>%scale()
+  Cognitive_Performance_lee_residuals <- Cognitive_Performance_lee_mod%>% residuals()%>%scale()
+### save the output
+output_data_all <-data_input%>% mutate(General_Cognitive_Function_Davies_residuals=
+                                         General_Cognitive_Function_Davies_residuals,
+                                       General_Cognitive_Function_Savage_residuals=
+                                         General_Cognitive_Function_Savage_residuals,
+                                       Cognitive_Performance_lee_residuals=
+                                         Cognitive_Performance_lee_residuals)
+  output_data_select <- output_data_all %>% dplyr::select("gfactor",ends_with("residuals"))
+  return(list(data_all = output_data_all,data_select = output_data_select)) 
+}
+
+
+
+genetics_gfactor_residual_baseline_train <- map2(.x = genetics_gfactor_baseline_train,
+                                                 .y = genetics_cog_score_feature_names,
+                                        ~genetics_pc_residual_computing(data_input = .x,gene_score_name = .y))
+genetics_gfactor_residual_baseline_train_select <- map(genetics_gfactor_residual_baseline_train,
+                                                       "data_select")
+
+genetics_gfactor_residual_baseline_test <- map2(.x = genetics_gfactor_baseline_test,
+                                                 .y = genetics_cog_score_feature_names,
+                                        ~genetics_pc_residual_computing(data_input = .x,gene_score_name = .y))
+genetics_gfactor_residual_baseline_test_select <- map(genetics_gfactor_residual_baseline_test,
+                                                      "data_select")
+
+genetics_gfactor_residual_followup_train<- map2(.x = genetics_gfactor_followup_train,
+                                                 .y = genetics_cog_score_feature_names,
+                                        ~genetics_pc_residual_computing(data_input = .x,gene_score_name = .y)) 
+
+
+genetics_gfactor_residual_followup_train_select <- map(genetics_gfactor_residual_followup_train,
+                                                       "data_select")
+
+genetics_gfactor_residual_followup_test<- map2(.x = genetics_gfactor_followup_test,
+                                                 .y = genetics_cog_score_feature_names,
+                                        ~genetics_pc_residual_computing(data_input = .x,gene_score_name = .y)) 
+
+
+genetics_gfactor_residual_followup_test_select <- map(genetics_gfactor_residual_followup_test,
+                                                      "data_select")
+
+
+residual_features <- c("General_Cognitive_Function_Davies_residuals",
+                       "General_Cognitive_Function_Savage_residuals",
+                       "Cognitive_Performance_lee_residuals")
+```
+
+
+# modelling
+
+
+```{r}
+### formula and recipe
+recipe_prep_gene <- function(train_input=train_gfactor_scan_enet,feature_input){
+  norm_recipe <- recipe( as.formula("gfactor~."), data = train_input) %>%
+update_role(all_of(feature_input), new_role = "predictor")%>%
+  update_role("gfactor", new_role = "outcome" )%>%
+  step_dummy(all_nominal()) 
+  preped_recipe <- norm_recipe%>%
+    prep(training = train_input, retain = TRUE)
+  return(list(norm_recipe= norm_recipe,preped_recipe=preped_recipe))
+}
+
+
+```
+
+
+
+## Performance of baseline
+
+```{r}
+
+### fit the enet model
+### baseline
+baseline_recipe_list <- map(.x = genetics_gfactor_residual_baseline_train_select,
+                             ~recipe_prep_gene(train_input=.x, feature_input = residual_features)) 
+
+enet_fit_baseline <- baseline_recipe_list %>% map(.,~enet_tuning(recipe_input = .)) 
+
+enet_fit_wf <- map(enet_fit_baseline,"enet_wf_final")
+
+
+enet_pred_baseline <- pmap(list(baseline_recipe_list,enet_fit_wf,
+                                genetics_gfactor_residual_baseline_test_select),~
+                                                 model_final_fit(recipe_input = ..1, 
+                                    wf_input = ..2,
+                                    test_data = ..3)) 
+
+
+
+
+
+enet_pred_baseline_results <- map(enet_pred_baseline,"model_predict")
+
+enet_pred_baseline_train <- pmap(list(baseline_recipe_list,enet_fit_wf,
+                                      genetics_gfactor_residual_baseline_train_select),~
+                                                 model_final_fit(recipe_input = ..1, 
+                                    wf_input = ..2,
+                                    test_data = ..3)) 
+
+
+
+
+
+enet_pred_baseline_results_train <- map(enet_pred_baseline_train,"model_predict")
+
+enet_baseline_metric <- purrr::map2(.x=enet_pred_baseline_results,
+                                .y=genetics_gfactor_baseline_test,
+                                ~metric_compute_site(data_input =.x ,
+                                           site_input = .y)) %>%
+                      do.call(rbind,.)
+
+      enet_baseline_metric%>% 
+    kableExtra::kbl(caption = "metrics for all sites in baseline") %>%
+    kableExtra::kable_classic(full_width = F, 
+                             html_font = "Cambria")
+
+
+enet_baseline_metric_avg <- average_metric_one_mod(metric_list =enet_baseline_metric)
+
+enet_baseline_metric_avg_table <- enet_baseline_metric_avg %>%
+  mutate_if(is.numeric, round, digits=3)%>%
+  mutate("correlation (sd)" = paste0(correlation," (",cor_sd,")"))%>%
+  mutate("tradrsq (sd)" = paste0(tradrsq," (",rsq_sd,")"))%>%
+  mutate("MAE (sd)" = paste0(MAE," (",mae_sd,")"))%>%
+  mutate("RMSE (sd)" = paste0(RMSE," (",rmse_sd,")"))%>%
+  select_if(is.character)
+  
+avg_table_var_names <- c("correlation (sd)", "tradrsq (sd)","MAE (sd)","RMSE (sd)"  )
+
+  enet_baseline_metric_avg_table%>%
+    dplyr::select(all_of(avg_table_var_names))%>%
+    kableExtra::kbl(caption = paste0("metrics for modalities averaged across sites in baseline")) %>%
+    kableExtra::kable_classic(full_width = F, 
+                             html_font = "Cambria")
+
+```
+
+
+## Performance of followup
+
+
+
+```{r}
+
+### fit the enet model
+### followup
+followup_recipe_list <- map(.x=genetics_gfactor_residual_followup_train_select,
+                             ~recipe_prep_gene(train_input=.x,feature_input = residual_features)) 
+
+enet_fit_followup <- followup_recipe_list %>% map(.,~enet_tuning(recipe_input = .)) 
+
+enet_fit_wf_followup <- map(enet_fit_followup,"enet_wf_final")
+
+
+enet_pred_followup <- pmap(list(followup_recipe_list,enet_fit_wf_followup,
+                                genetics_gfactor_residual_followup_test_select),~
+                                                 model_final_fit(recipe_input = ..1, 
+                                    wf_input = ..2,
+                                    test_data = ..3)) 
+
+enet_pred_followup_results <- map(enet_pred_followup,"model_predict")
+
+
+enet_pred_followup_train <- pmap(list(followup_recipe_list,enet_fit_wf_followup,
+                                      genetics_gfactor_residual_followup_train_select),~
+                                                 model_final_fit(recipe_input = ..1, 
+                                    wf_input = ..2,
+                                    test_data = ..3)) 
+
+enet_pred_followup_results_train <- map(enet_pred_followup_train,"model_predict")
+
+enet_followup_metric <- purrr::map2(.x=enet_pred_followup_results,
+                                .y=genetics_gfactor_followup_test,
+                                ~metric_compute_site(data_input =.x ,
+                                           site_input = .y)) %>%
+                      do.call(rbind,.)
+
+      enet_followup_metric%>% 
+    kableExtra::kbl(caption = "metrics for all sites in followup") %>%
+    kableExtra::kable_classic(full_width = F, 
+                             html_font = "Cambria")
+
+
+enet_followup_metric_avg <- average_metric_one_mod(metric_list =enet_followup_metric)
+
+enet_followup_metric_avg_table <- enet_followup_metric_avg %>%
+  mutate_if(is.numeric, round, digits=3)%>%
+  mutate("correlation (sd)" = paste0(correlation," (",cor_sd,")"))%>%
+  mutate("tradrsq (sd)" = paste0(tradrsq," (",rsq_sd,")"))%>%
+  mutate("MAE (sd)" = paste0(MAE," (",mae_sd,")"))%>%
+  mutate("RMSE (sd)" = paste0(RMSE," (",rmse_sd,")"))%>%
+  select_if(is.character)
+  
+  enet_followup_metric_avg_table%>%
+    dplyr::select(all_of(avg_table_var_names))%>%
+    kableExtra::kbl(caption = paste0("metrics for modalities averaged across sites in followup")) %>%
+    kableExtra::kable_classic(full_width = F, 
+                             html_font = "Cambria")
+```
+
+## feature importance for the elastic net models
+
+
+
+
+
+
+### elastic net coefficients
+
+
+```{r}
+
+enet_fit_baseline <- map(enet_pred_baseline,"model_final_fit")
+enet_param_baseline <- map(enet_fit_baseline,~parsnip::tidy(.))
+
+
+enet_fit_followup<- map(enet_pred_followup,"model_final_fit")
+enet_param_followup <- map(enet_fit_followup,~parsnip::tidy(.))
+
+identical(site_char, names(enet_param_baseline))
+
+
+```
+
+### Compute univariate correlation and correlation tests
+
+Baseline
+
+```{r}
+corr_data_all <- rbind(genetics_gfactor_residual_baseline_train[[1]][["data_all"]],
+                       genetics_gfactor_residual_baseline_test[[1]][["data_all"]])
+
+ corr_all_features <- purrr::map(.x = residual_features,~cor(corr_data_all[[.x]],corr_data_all[["gfactor"]]))%>% 
+                                          do.call(rbind,.)%>% as.numeric()
+ 
+ corr_all_features_cor_test <- purrr::map(.x = residual_features,
+                            ~cor.test(corr_data_all[[.x]],corr_data_all[["gfactor"]],method="pearson"))
+ 
+ corr_all_features_ci <- purrr::map(corr_all_features_cor_test,"conf.int")%>% 
+                                          do.call(rbind,.)%>% tibble::as_tibble()%>%
+                                          rename(low=V1,upp=V2)
+                                          
+   
+ 
+  corr_output_tibble <- tibble(feature_names = residual_features,value = corr_all_features)
+corr_output_tibble <- cbind(corr_output_tibble,corr_all_features_ci)
+  
+
+plotting_names <- tibble(feature_names = corr_output_tibble$feature_names,
+                         plotting_name = c("Davies PGS","Savage PGS", "Lee PGS"))
+
+ corr_baseline_all_sites_names <- full_join(corr_output_tibble,plotting_names, by = "feature_names")
+### get the names
+
+
+
+
+```
+
+Compute the univariate correlations at followup
+
+```{r}
+
+corr_data_all_followup <- rbind(genetics_gfactor_residual_followup_train[[1]][["data_all"]],
+                       genetics_gfactor_residual_followup_test[[1]][["data_all"]])
+
+ corr_all_features_followup <- purrr::map(.x = residual_features,
+                                          ~cor(corr_data_all_followup[[.x]],
+                                               corr_data_all_followup[["gfactor"]]))%>% 
+                                          do.call(rbind,.)%>% as.numeric()
+ 
+ corr_all_features_cor_test_followup <- purrr::map(.x = residual_features,
+                            ~cor.test(corr_data_all_followup[[.x]],
+                                      corr_data_all_followup[["gfactor"]],method="pearson"))
+ 
+ corr_all_features_ci_followup <- purrr::map(corr_all_features_cor_test_followup,"conf.int")%>% 
+                                          do.call(rbind,.)%>% tibble::as_tibble()%>%
+                                          rename(low=V1,upp=V2)
+                                          
+   
+ 
+  corr_output_tibble_followup <- tibble(feature_names = residual_features,
+                                        value = corr_all_features_followup)
+corr_output_tibble_followup <- cbind(corr_output_tibble_followup,corr_all_features_ci_followup)
+  
+
+ corr_followup_all_sites_names <- full_join(corr_output_tibble_followup,
+                                            plotting_names, by = "feature_names")
+
+
+```
+
+
+Tidying up the output
+
+```{r}
+
+processed_coefs_baseline <- coef_processing(list_input = enet_param_baseline)
+processed_coefs_followup <- coef_processing(list_input = enet_param_followup)
+### get better names
+### Join the feature names with plotting names
+processed_coefs_baseline <- processed_coefs_baseline %>% rename( feature_names= term)
+processed_coefs_baseline_with_names <- full_join(processed_coefs_baseline,
+                                            plotting_names, by = "feature_names")
+
+
+processed_coefs_followup <- processed_coefs_followup %>% rename( feature_names= term)
+processed_coefs_followup_with_names <- full_join(processed_coefs_followup,
+                                            plotting_names, by = "feature_names")
+```
+
+### Elastic net feature importance with dots
+
+
+```{r}
+mean_total_bar_plot_with_dots <- function(data_input,site_mean_input="mean"){
+    estimate_name <- paste0(site_mean_input,"_estimate")
+  ### arrange the data from small to large
+  data_input <- data_input %>%
+            #    select(all_of(c("plotting_name",estimate_name)))%>%
+                arrange(.data[[estimate_name]])
+  ordered_plotting_names <- data_input$plotting_name
+  data_input<- data_input%>%
+                  mutate(plotting_name = as.factor(plotting_name))%>%
+                  mutate(plotting_name = factor(plotting_name,
+                                                      levels =ordered_plotting_names))
+  
+  data_input_longer <- data_input %>%
+                       select(-all_of(c("feature_names","mean_estimate")))%>%
+                       pivot_longer(!plotting_name, values_to = "site_estimates",names_to = "site")
+  
+  
+  
+    bar_plot <- ggplot() +
+  geom_bar(aes(x=data_input[[estimate_name]], y=data_input[["plotting_name"]]),stat="identity",fill = "grey60")+
+  geom_jitter(aes(x=data_input_longer[["site_estimates"]], y=data_input_longer[["plotting_name"]]))+
+  theme_classic() + 
+    labs(title = "Feature Importance")+
+theme(
+  axis.title.x = element_blank(),
+  axis.text.x = element_text(size = 12),
+  axis.title.y = element_blank(),
+  axis.text.y = element_text(size = 12),
+  legend.text = element_blank(),
+  plot.title = element_text(size=15))
+  return(list(bar_plot=bar_plot,
+              ordered_plotting_names=ordered_plotting_names))
+}
+
+enet_bar_baseline_with_dots <-  mean_total_bar_plot_with_dots(data_input = processed_coefs_baseline_with_names)
+
+enet_bar_baseline_with_dots[["bar_plot"]]
+
+
+enet_bar_followup_with_dots <-  mean_total_bar_plot_with_dots(data_input = processed_coefs_followup_with_names)
+
+enet_bar_followup_with_dots[["bar_plot"]]
+
+
+```
+
+### plotting univariate correlations
+
+```{r}
+
+
+
+#corr_baseline_all_sites_names <- corr_output_tibble %>% mutate(plotting_name = feature_names)
+
+  
+corr_baseline_bar <-   corr_baseline_all_sites_names%>%
+     mutate(plotting_name = as.factor(plotting_name))%>%
+                  mutate(plotting_name = factor(plotting_name,
+                                  levels =enet_bar_baseline_with_dots[["ordered_plotting_names"]]))%>%
+ #mutate(plotting_name = fct_reorder(plotting_name, value,.fun = "max"))%>%
+  ggplot(aes(x = plotting_name, y = value))+
+    geom_bar(stat = "identity",fill="gray30",alpha = 0.7)+
+    geom_errorbar( aes(x=plotting_name, 
+                   ymin=low, 
+                   ymax=upp),
+               width=0.4, colour="black", alpha=0.9, linewidth=1.3)+
+      coord_flip()+
+    theme_classic() + 
+  labs(title = "Univariate Corr") +
+   theme(
+  axis.title.x = element_blank(),
+  axis.text.x = element_text(size = 12),
+  axis.title.y = element_blank(),
+  axis.text.y = element_blank(),
+  legend.text = element_blank(),
+  plot.title = element_text(size=15))
+
+
+corr_baseline_bar
+```
+
+
+```{r}
+
+
+### get the names
+
+#corr_baseline_all_sites_names <- corr_output_tibble %>% mutate(plotting_name = feature_names)
+
+  
+corr_followup_bar <-  corr_followup_all_sites_names%>%
+   mutate(plotting_name = as.factor(plotting_name))%>%
+                  mutate(plotting_name = factor(plotting_name,
+                                  levels =enet_bar_followup_with_dots[["ordered_plotting_names"]]))%>%
+ #mutate(plotting_name = fct_reorder(plotting_name, value,.fun = "max"))%>%
+  ggplot(aes(x = plotting_name, y = value))+
+    geom_bar(stat = "identity",fill="gray30",alpha = 0.7)+
+    geom_errorbar( aes(x=plotting_name, 
+                   ymin=low, 
+                   ymax=upp),
+               width=0.4, colour="black", alpha=0.9, linewidth=1.3)+
+      coord_flip()+
+    theme_classic() + 
+  labs(title = "Univariate Corr") +
+    theme(
+  axis.title.x = element_blank(),
+  axis.text.x = element_text(size = 12),
+  axis.title.y = element_blank(),
+  axis.text.y = element_blank(),
+  legend.text = element_blank(),
+  plot.title = element_text(size=15))
+
+
+corr_followup_bar
+```
+
+combine the plots together
+
+```{r,fig.width=10,fig.height=2}
+
+aligned_baseline_all <-ggpubr::ggarrange(enet_bar_baseline_with_dots[["bar_plot"]],
+                                                   corr_baseline_bar,
+                                                   nrow = 1, ncol = 2,widths = c(1.5,1)) %>%
+                            ggpubr::annotate_figure(top = ggpubr::text_grob("Baseline",size=20,hjust=1.3))
+
+
+aligned_followup_all <-ggpubr::ggarrange(enet_bar_followup_with_dots[["bar_plot"]],
+                                                   corr_followup_bar,
+                                                   nrow = 1, ncol = 2,widths = c(1.5,1))%>%
+                            ggpubr::annotate_figure(top = ggpubr::text_grob("Followup",size=20,hjust=1.3)) 
+aligned_plots_all <- ggpubr::ggarrange(aligned_baseline_all,
+                                                   aligned_followup_all,
+                                                   nrow = 1, ncol = 2)
+aligned_plots_all
+
+
+title_plot_all <- ggpubr::annotate_figure(aligned_plots_all,
+                        top = ggpubr::text_grob("Feature importance of Genes in Predicting Cognitive Abilities",size=20, face = "bold")) 
+
+title_plot_all
+```
+
+
+
+
+
+
+
+
+
+
+
+## save the output
+
+```{r}
+
+output_list <- list(baseline_train_pred = enet_pred_baseline_results_train,
+                    baseline_test_pred = enet_pred_baseline_results,
+                    baseline_train_data = genetics_gfactor_baseline_train,
+                    baseline_test_data = genetics_gfactor_baseline_test,
+                    followup_train_pred = enet_pred_followup_results_train,
+                    followup_test_pred = enet_pred_followup_results,
+                    followup_train_data =genetics_gfactor_followup_train ,
+                    followup_test_data = genetics_gfactor_followup_test)
+
+```
+
+
+
+```{r,eval=FALSE}
+saveRDS(output_list,paste0(scriptfold,'genetics_psychopathology_common_scan_all_scripts/psychopathology_cog_gene_pred_residual_5.1', '.RData'))
+
+```
+
+
+
+
+```{r}
+enet_baseline_metric_output_table <-  enet_baseline_metric_avg_table%>%
+                                      mutate(event = "baseline")
+
+
+enet_followup_metric_output_table  <- enet_followup_metric_avg_table%>%
+                                      mutate(event = "followup")
+
+output_table <- bind_rows(enet_baseline_metric_output_table,
+                          enet_followup_metric_output_table)%>%
+                          mutate(modality = "Genes")
+```
+
+
+```{r}
+
+saveRDS(output_table,paste0(scriptfold,'Common_psy_gene_brain_all/saved_outputs/performance_metrics/gene_performance_metric_5.1', '.RData'))
+
+```
