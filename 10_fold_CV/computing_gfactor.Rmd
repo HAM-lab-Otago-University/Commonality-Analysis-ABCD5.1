@@ -1,0 +1,330 @@
+---
+title: "Computing Gfactor based on cognitive scores based on NIH toolbox and Pearson scores of Rey auditory verbal learning test"
+author: "Yue Wang, Narun Pat"
+date:  "`r format(Sys.time(), '%d %b, %Y')`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: united
+    number_sections: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+options(scipen = 999)
+```
+
+# Setting up the environment
+
+## Reset workspace and load libraries  
+
+
+```{r , results='hide', message=FALSE, warning=FALSE}
+rm(list=ls())
+gc()
+```
+
+
+Load libraries
+
+```{r , results='hide', message=FALSE, warning=FALSE}
+library(tidyverse)
+library(qgraph)
+library(pander)
+library(summarytools)
+library(sjPlot)
+library(sjmisc)
+library(sjlabelled)
+library(tidymodels)
+library(knitr)
+library(extrafont)
+## for poisson class of elastic net
+library(poissonreg)
+```
+
+
+
+
+## Setting up paths
+
+This analysis uses ABCD Release 5.1
+
+
+```{r, cache=FALSE}
+datafolder_5.1 = '/Volumes/sci-psy-narun/abcd-data-release-5.1/core/'
+outputfolder_5.1 = "/Volumes/sci-psy-narun/Yue/ABCD_5.1_data_precessing/processed_data/"
+dicfolder_5.1 = '/Volumes/sci-psy-narun/abcd-data-release-5.1/dictionary/'
+featurefolder = "/Volumes/sci-psy-narun/Yue/ABCD_5.1_data_precessing/processed_data/"
+utilFold = "/Volumes/Data/ABCD/ABCD3/Analysis/utilFunc/"
+imagingfolder_5.1  = paste0(datafolder_5.1, "imaging/")
+nesi_folder <- "/Volumes/sci-psy-narun/Nesi/Yue/"
+
+#scriptfold = "/media/Data/Yue script/"
+scriptfold = "/Volumes/Data/Yue script/"
+
+source(paste0(scriptfold,"stacking_gfactor_modelling/r_functions_fold.R"))
+
+```
+
+
+Set up parallel library
+
+```{r}
+# parallel for ubuntu
+doParallel::registerDoParallel(cores=30)  
+
+## this one works for ubuntu but slow
+#library(doFuture)
+#registerDoFuture()
+#plan(multicore(workers = 30))
+
+### parallel for windows
+
+#library(doFuture)
+#registerDoFuture()
+#plan(multisession(workers = 30))
+```
+
+
+# Loading data
+
+
+## site information
+
+
+```{r}
+
+abcd_y_lt<- read.csv(paste0(datafolder_5.1, "abcd-general/abcd_y_lt.csv") , na = c("", "NA", "999", "777"))
+names(abcd_y_lt) <-toupper(colnames(abcd_y_lt))
+
+site_select <- abcd_y_lt %>% filter(EVENTNAME %in% c("baseline_year_1_arm_1","2_year_follow_up_y_arm_1" )) %>% 
+               select(all_of(c("SRC_SUBJECT_ID","EVENTNAME","SITE_ID_L" )))
+```
+
+
+## Cognition
+
+### Load neuro cognitive measures
+
+```{r}
+nihtb <- read.csv(paste0(datafolder_5.1, "neurocognition/nc_y_nihtb.csv"), na = c("", "NA", "999", "777"))
+names(nihtb) <-toupper(colnames(nihtb))
+
+ravlt <- read.csv(paste0(datafolder_5.1, "neurocognition/nc_y_ravlt.csv"), na = c("", "NA", "999", "777"))
+names(ravlt) <-toupper(colnames(ravlt))
+
+```
+
+
+
+```{r, cache=FALSE}
+
+vision_idx <- tibble::as_tibble(read.csv(paste0(datafolder_5.1, "neurocognition/nc_y_svs.csv"),header = TRUE)) 
+names(vision_idx) <-toupper(colnames(vision_idx))
+
+vision_idx <- vision_idx%>% 
+  mutate(visionProb = ifelse(SNELLEN_VA_Y == 0 | SNELLEN_VA_Y == 1 | VIS_FLG == 2, 1, 0))
+
+```
+
+### sum cognition
+
+
+```{r, cache = FALSE, warning=FALSE}
+
+sumCog <- plyr::join_all(list(nihtb, ravlt, vision_idx), 
+               by=c('SRC_SUBJECT_ID','EVENTNAME'), type='full') %>%
+  select(SRC_SUBJECT_ID,EVENTNAME,
+         NIHTBX_FLANKER_UNCORRECTED, NIHTBX_CARDSORT_UNCORRECTED, NIHTBX_PATTERN_UNCORRECTED, 
+         NIHTBX_PICVOCAB_UNCORRECTED, NIHTBX_READING_UNCORRECTED, NIHTBX_PICTURE_UNCORRECTED,
+         PEA_RAVLT_LD_TRIAL_VII_TC, NIHTBX_LIST_UNCORRECTED,
+         NIHTBX_FLUIDCOMP_UNCORRECTED, NIHTBX_CRYST_UNCORRECTED, NIHTBX_TOTALCOMP_UNCORRECTED, visionProb)
+
+```
+
+### Detect the observations with vision issues
+
+
+```{r}
+
+data_removed <- vision_idx %>% filter(SNELLEN_VA_Y == 0 | SNELLEN_VA_Y == 1 | VIS_FLG == 2)
+
+removed_subj <- data_removed$SRC_SUBJECT_ID
+length(removed_subj)
+
+```
+
+
+
+# Compute and process gfactor
+
+Here are the cognition tasks selected to compute gfactor: 
+
+NIH Toolbox Picture Vocabulary Test Age 3+
+
+NIH Toolbox Oral Reading Recognition Test Age 3+
+
+NIH Toolbox Flanker Inhibitory Control and Attention Test Ages 8-11
+
+NIH Toolbox Pattern Comparison Processing Speed Test Age 7+
+
+NIH Toolbox Picture Sequence Memory Test Age 8+
+
+Pearson Scores: Rey Auditory Verbal Learning Test
+
+
+```{r}
+
+TaskDVs1Batch = c("NIHTBX_PICVOCAB_UNCORRECTED", 
+                  "NIHTBX_READING_UNCORRECTED",
+              "NIHTBX_FLANKER_UNCORRECTED",
+              "NIHTBX_PATTERN_UNCORRECTED",
+              "NIHTBX_PICTURE_UNCORRECTED",
+               "PEA_RAVLT_LD_TRIAL_VII_TC")
+
+
+subj_info <-  c("SRC_SUBJECT_ID","EVENTNAME","SITE_ID_L")   
+
+
+
+sumCog_select <- sumCog %>% 
+  select(all_of(TaskDVs1Batch),all_of(c("SRC_SUBJECT_ID","EVENTNAME" )))
+
+sumCog_select %>% count(EVENTNAME)
+
+  
+subj_info <- c("SRC_SUBJECT_ID","EVENTNAME","SITE_ID_L")
+
+sumCog_select <- left_join(sumCog_select,site_select,by =c("SRC_SUBJECT_ID","EVENTNAME"))%>%
+  drop_na(SITE_ID_L) 
+
+sumCog_select %>% count(EVENTNAME)
+
+sumCog_select <- sumCog_select %>%
+  filter(SITE_ID_L != "site22")%>%
+  select(all_of(TaskDVs1Batch),all_of(subj_info))
+
+sumCog_select %>% count(EVENTNAME)
+```
+
+### Remove the subjects due to vision
+
+```{r}
+
+sumCog_select <- sumCog_select %>% filter(!SRC_SUBJECT_ID %in% removed_subj)
+
+sumCog_select %>% count(EVENTNAME)
+
+```
+
+## Compute and scale gfactor
+
+### The CFA model for gfactor
+
+```{r}
+
+NeuroCog2ndOrder <-'
+Language =~ NIHTBX_PICVOCAB_UNCORRECTED + NIHTBX_READING_UNCORRECTED 
+CognitiveFlexibity =~ NIHTBX_FLANKER_UNCORRECTED + NIHTBX_PATTERN_UNCORRECTED 
+MemoryRecall =~ NIHTBX_PICTURE_UNCORRECTED + PEA_RAVLT_LD_TRIAL_VII_TC
+g =~ NA*Language + CognitiveFlexibity  + MemoryRecall #estimate the loading of GenAbi -> as opposed to using it as a marker
+g ~~ 1*g #need to constrain variance to 1'
+
+```
+
+### Making splits based on fold
+
+```{r}
+fold_info <- readRDS(paste0(nesi_folder,"stacking_gfactor_modelling/data/part_fold",".RDS"))
+
+sumCog_fold <- left_join(sumCog_select,fold_info, by = c("SRC_SUBJECT_ID","EVENTNAME")) %>% drop_na(fold)
+
+fold_names <- unique(sumCog_fold$fold) %>% set_names()
+
+
+sumCog_select_split <- map(fold_names, ~split_func(.x,data_input = sumCog_fold)) 
+```
+
+### Compute gfactor
+
+The following step compute and process gfactor. The process is as follows:
+
+1. Scaling: scale the followup data based on the mean and standard deviation from baseline.
+2. Fit the CFA model called NeuroCog2ndOrder on the baseline train data. Then make predictions with this model on baseline train, test and followup train and test.
+3. The output gfactor is scaled again with the same method used in step 1.
+
+All the same response gfactor is used across all the analyses as a response variable.
+
+
+
+```{r,eval=TRUE}
+
+gfactor_list <- sumCog_select_split %>% map(.,~gfactor_cross_sites_seperate(split_input = .))
+
+```
+
+# Output and the metrics of the gfactor model
+
+Combine the baseline data together for model fitting.
+
+```{r}
+
+baseline_train <- sumCog_select_split[[1]]%>% 
+                  training()%>%
+                  filter(EVENTNAME=="baseline_year_1_arm_1")
+
+baseline_test <- sumCog_select_split[[1]]%>% 
+                  testing()%>%
+                  filter(EVENTNAME=="baseline_year_1_arm_1")
+
+
+baseline_data <- rbind(baseline_train,baseline_test)%>% 
+                 drop_na()
+```
+
+
+```{r}
+NeuroCog2ndOrder.Fit <- lavaan::cfa(model = NeuroCog2ndOrder, 
+                                      data = baseline_data,estimator="MLR")
+
+```
+
+
+```{r}
+
+lavaan::summary(NeuroCog2ndOrder.Fit, standardized = TRUE, rsquare = TRUE, fit.measures = TRUE)
+
+semTools::reliabilityL2(NeuroCog2ndOrder.Fit, secondFactor = "g")
+```
+
+
+Plotting the path plots
+
+
+This will display the standardized parameter estimate in edge labels.
+
+
+```{r}
+#expression(paste(italic("Cognitive \nAbilities")))
+Plabels = c("Vocab","Reading","Flanker","Pattern","Picture","RAVLT","Language","Mental\nFlexibity","Memory\nRecall","Cognitive \nAbilities")
+semPlot::semPaths(object=NeuroCog2ndOrder.Fit,intercepts = F, residuals = F, 
+        whatLabels="std", what = "std", layout="tree", node.width = 1.4,
+         edge.label.cex = 1.4, nodeLabels=Plabels, edge.color="black",
+        sizeMan = 10, sizeLat = 10,edge.label.bg= TRUE,edge.label.position = 0.65
+        #,sizeInt = 12
+        )
+
+```
+
+
+
+### Save the outputs
+
+```{r,eval=FALSE}
+saveRDS(gfactor_list, paste0(nesi_folder,"stacking_gfactor_10foldcv/data/gfactor_scale_seperate_fold",".RData"))
+```
+
+

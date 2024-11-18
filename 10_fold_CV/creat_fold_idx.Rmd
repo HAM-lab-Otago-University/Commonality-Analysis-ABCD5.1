@@ -1,0 +1,228 @@
+---
+title: "PLS Model Fitting of Cognitive Abilities ~ Soc-Dem-Life-Dev for baseline and follow-up"
+author: "Yue Wang, Narun Pat"
+date:  "`r format(Sys.time(), '%d %b, %Y')`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: united
+    number_sections: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+options(scipen = 999)
+```
+
+# Set the working environment
+
+## Reset workspace and load libraries  
+This analysis uses ABCD Release 5.1.
+
+This script is modified based on the social economics status and developmental analysis with elastic net version 2.0.
+
+```{r , results='hide', message=FALSE, warning=FALSE}
+rm(list=ls())
+gc()
+```
+
+```{r , results='hide', message=FALSE, warning=FALSE}
+library(tidyverse)
+library(qgraph)
+library(pander)
+library(summarytools)
+library(sjPlot)
+library(sjmisc)
+library(sjlabelled)
+library(tidymodels)
+library(knitr)
+library(extrafont)
+## for poisson class of elastic net
+library(poissonreg)
+library("sva")
+### plotting libraries
+library(ggtext)
+library(ggpubr)
+library(cowplot)
+library(ggthemes)
+### package for pls analysis (all packages are necessary for the model to run)
+library("pls")
+library("mixOmics")
+library(plsmod)
+
+```
+
+
+## Setting up paths
+
+Using ABCD 4.0 
+
+```{r, cache=FALSE, include=FALSE}
+
+#ABCD3Fold <- '/Volumes/wd/ABCD3/'
+#ABCD3Fold <-"~/OneDrive - University of Otago/ABCD3/"
+
+#ABCD4Fold <-"/media/Data/ABCD/ABCD4/"
+ABCD4Fold <-"/Volumes/Data/ABCD/ABCD4/"
+
+
+#ABCD4Fold <- "//np-qnapa/Data/ABCD/ABCD4/"
+#setwd(paste0(ABCD3Fold, "Analysis/CognitionP"))
+dataFold <- paste0(ABCD4Fold, "ABCD4SQL/")
+
+#ABCD3Fold <-"/media/Data/ABCD/ABCD3/"
+ABCD3Fold <-"/Volumes/Data/ABCD/ABCD3/"
+
+
+#utilFold <- paste0(ABCD3Fold, "Analysis/utilFunc/")
+
+#scriptfold = "/media/Data/Yue script/"
+scriptfold = "/Volumes/Data/Yue script/"
+
+
+datafolder_5.1 = '/Volumes/sci-psy-narun/abcd-data-release-5.1/core/'
+outputfolder_5.1 = "/Volumes/sci-psy-narun/Yue/ABCD_5.1_data_precessing/processed_data/"
+dicfolder_5.1 = '/Volumes/sci-psy-narun/abcd-data-release-5.1/dictionary/'
+featurefolder = "/Volumes/sci-psy-narun/Yue/ABCD_5.1_data_precessing/processed_data/"
+commonfolder = "/Volumes/sci-psy-narun/Yue/Common_psy_ses_brain_gene_5.1/"
+utilFold = "/Volumes/Data/ABCD/ABCD3/Analysis/utilFunc/"
+imagingfolder_5.1  = paste0(datafolder_5.1, "imaging/")
+nesi_folder <- "/Volumes/sci-psy-narun/Nesi/Yue/"
+
+
+source(paste0(scriptfold,"stacking_gfactor_modelling/r_functions_5.1.R"))
+
+```
+
+set up parallel
+
+```{r}
+# parallel for ubuntu
+#doParallel::registerDoParallel(cores=30)  
+
+### parallel library for mac
+theme_set(theme_bw() + theme(panel.grid = element_blank()))
+## parallel processing number of cores register
+all_cores <- parallel::detectCores(logical = FALSE) - 5
+
+doParallel::registerDoParallel(cores = all_cores)
+
+## this one works for ubuntu but slow
+#library(doFuture)
+#registerDoFuture()
+#plan(multicore(workers = 30))
+
+### parallel for windows
+
+#library(doFuture)
+#registerDoFuture()
+#plan(multisession(workers = 30))
+```
+
+# Load up data files
+
+## Family relationship
+
+
+1 = Male ;2 = Female  ;3 = Intersex-Male ; 4 = Intersex-Female o; 999 = Don't know ; 777 = Refuse to answer 
+
+```{r, cache = FALSE, warning=FALSE}
+
+acspsw03 <- read.csv("/Volumes/sci-psy-narun/abcd-data-release-5.1/core/abcd-general/abcd_y_lt.csv", na = c("", "NA", "999", "777"))
+names(acspsw03) <-toupper(colnames(acspsw03))
+acspsw03_select <- acspsw03 %>% filter(EVENTNAME %in% c("baseline_year_1_arm_1","2_year_follow_up_y_arm_1" ))
+
+### write NAs of the followup family ids to be the family IDs at baseline
+acspsw03_baseline <- acspsw03_select %>% filter(EVENTNAME == "baseline_year_1_arm_1" )
+acspsw03_followup <- acspsw03_select %>% filter(EVENTNAME == "2_year_follow_up_y_arm_1" )
+
+fam_basline <- acspsw03_baseline %>% dplyr::select(all_of(c("REL_FAMILY_ID","SRC_SUBJECT_ID")))
+
+acspsw03_followup <- acspsw03_followup %>%dplyr::select(-"REL_FAMILY_ID") %>% 
+                                          left_join(fam_basline, by = "SRC_SUBJECT_ID")
+
+acspsw03_select <- bind_rows(acspsw03_baseline,acspsw03_followup)
+
+demo <- read.csv("/Volumes/sci-psy-narun/abcd-data-release-5.1/core/abcd-general/abcd_p_demo.csv", na = c("", "NA", "999", "777"))
+names(demo) <-toupper(colnames(demo))
+demo_select <- demo %>% filter(EVENTNAME %in% c("baseline_year_1_arm_1","2_year_follow_up_y_arm_1" ))
+
+
+
+
+ACS <- left_join(demo_select,acspsw03_select,by =c("SRC_SUBJECT_ID","EVENTNAME"))
+
+# guardian-report relationship
+# Relationship of the participant in his or her family
+# 0 = single; 1 = sibling; 2 = twin; 3 = triplet
+# ACS %>% count(REL_RELATIONSHIP)
+
+ACSselected <- ACS %>% 
+  dplyr::select(all_of(c("SRC_SUBJECT_ID", "EVENTNAME", "DEMO_SEX_V2", "INTERVIEW_AGE", "RACE_ETHNICITY", 
+                              "REL_FAMILY_ID", "ACS_RAKED_PROPENSITY_SCORE","SITE_ID_L"))) %>%
+  mutate(RACE_ETHNICITY = recode_factor(as.factor(RACE_ETHNICITY),
+                `1` = "White", `2` = "Black", `3` = "Hispanic", `4` = "Asian", `5` = "Other",
+                .default = "White")) %>%
+  mutate(DEMO_SEX_V2 = as.factor(DEMO_SEX_V2)) %>%
+  mutate(DEMO_SEX_V2 = recode_factor(as.factor(DEMO_SEX_V2),
+                `1` = "Male", `2` = "Female", `3` = "Intersex-Male", `4` = "Intersex-Female",
+                .default = "White")) %>%
+  mutate(REL_FAMILY_ID = as.factor(REL_FAMILY_ID))
+
+ACSselected %>%
+ filter(EVENTNAME =="baseline_year_1_arm_1") %>%
+ skimr::skim()
+
+
+ACSselected_baseline <- ACSselected %>% filter(EVENTNAME =="baseline_year_1_arm_1") 
+ACS_sex_race <- ACSselected_baseline %>% dplyr::select(SRC_SUBJECT_ID,DEMO_SEX_V2,RACE_ETHNICITY)
+
+ACSselected_followup <- ACSselected %>% filter(EVENTNAME =="2_year_follow_up_y_arm_1") %>% 
+                                        dplyr::select(- all_of(c( "DEMO_SEX_V2" ,"RACE_ETHNICITY"  )))
+
+ACSselected_followup <- left_join(ACSselected_followup,ACS_sex_race,by = "SRC_SUBJECT_ID") 
+```
+
+# Create fold information
+
+```{r}
+
+set.seed(123)
+
+fam_vec <- unique(acspsw03_baseline$REL_FAMILY_ID)
+
+fam_split_list <- split(fam_vec, sort(fam_vec%%10))
+
+part_info_select <- ACSselected %>% dplyr::select("SRC_SUBJECT_ID" ,"EVENTNAME" , "REL_FAMILY_ID") 
+
+fold_vec <- c(paste0("fold0",seq(1:9)),"fold10")
+
+add_fold <- function(data_input=part_info_select, 
+                     fold_input=fold_vec[1], 
+                     split_input = fam_split_list[[1]]){
+  data_select <- data_input %>% filter(REL_FAMILY_ID %in% split_input) %>% mutate(fold = fold_input)
+  return(data_select)
+}
+
+
+part_fold <- map2(.x = fam_split_list, .y = fold_vec, ~add_fold(data_input=part_info_select, 
+                     fold_input=.y, 
+                     split_input = .x)) %>% do.call(rbind,.)
+
+
+part_fold_baseline <- part_fold %>% filter(EVENTNAME == "baseline_year_1_arm_1" )
+
+part_fold_baseline %>% count(fold)
+
+
+part_fold_followup <- part_fold %>% filter(EVENTNAME == "2_year_follow_up_y_arm_1" )
+
+part_fold_followup %>% count(fold)
+```
+
+```{r,eval=FALSE}
+saveRDS(part_fold,paste0(nesi_folder,"stacking_gfactor_10foldcv/data/part_fold",".RDS"))
+```

@@ -1,0 +1,574 @@
+---
+title: "Predictive performance of Mental Health, CBCL, ASR,  Personality, Brain, Each Brain Modality, Genes, Soc-Dem-Life-Dev for baseline and follow-up"
+author: "Yue Wang and Narun P"
+date:  "`r format(Sys.time(), '%d %b, %Y')`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: united
+    number_sections: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r load_data, echo=FALSE}
+rm(list = ls(all.names = TRUE)) #will clear all objects includes hidden objects.
+gc() #free up memory and report the memory usage.
+```
+
+# setting up environments
+
+## Note
+Here we the ABCD release 5.1 data-set
+
+## Loading libraries
+The following libraries and default settings were used during the analysis:
+
+
+Changes: psychopathology to mental health
+
+
+
+```{r load_libraries}
+options(scipen = 999)
+#library("sva")
+library(tidyverse)
+library("tidymodels")
+##parallel map
+library(partR2)
+library(lme4)
+library(yhat)
+library(ggtext)
+library(ggpubr)
+library(cowplot)
+library(partR2)
+library(lme4)
+library(yhat)
+library("VennDiagram")
+library(viridis)
+library(ggpointdensity)
+library(ggthemes)
+
+theme_set(theme_bw() + theme(panel.grid = element_blank()))
+## parallel processing number of cores register
+all_cores <- parallel::detectCores(logical = FALSE) - 5
+
+doParallel::registerDoParallel(cores = all_cores)
+
+```
+
+## Setting up path
+
+We first loaded all of the relevant data files (not shown here as they refer to local directories):
+
+```{r loading_data, echo=FALSE}
+# from Qnap data windows
+#datafolder = "//np-qnapa/Data/ABCD/ABCD4/ABCD4SQL/"
+#scriptfold = "//np-qnapa/Data/Yue script/"
+#NDAfold = "//np-qnapa/Data/ABCD/ABCD4/ABCDStudyNDA/"
+#utilFold = "//np-qnapa/Data/ABCD/ABCD3/Analysis/utilFunc/"
+#studyNDAFold = "//np-qnapa/Data/ABCD/ABCD4/ABCDStudyNDA/"
+#outputfolder = "//np-qnapa/Data/ABCD/ABCD4/ABCD4_precessed_data/"
+
+### unbuntu directories
+
+#datafolder = "/media/Data/ABCD/ABCD4/ABCD4SQL/"
+#scriptfold = "/media/Data/Yue script/"
+#NDAfold = "/media/Data/ABCD/ABCD4/ABCDStudyNDA/"
+#utilFold = "/media/Data/ABCD/ABCD3/Analysis/utilFunc/"
+#studyNDAFold = "/media/Data/ABCD/ABCD4/ABCDStudyNDA/"
+#outputfolder = "/media/Data/ABCD/ABCD4/ABCD4_precessed_data/"
+#featurefolder = "/media/Data/ABCD/ABCD4/Analysis/ManipulatedData/"
+
+### mac directories
+datafolder = "/Volumes/Data/ABCD/ABCD4/ABCD4SQL/"
+scriptfold = "/Volumes/Data/Yue script/"
+NDAfold = "/Volumes/Data/ABCD/ABCD4/ABCDStudyNDA/"
+utilFold = "/Volumes/Data/ABCD/ABCD3/Analysis/utilFunc/"
+studyNDAFold = "/Volumes/Data/ABCD/ABCD4/ABCDStudyNDA/"
+outputfolder = "/Volumes/Data/ABCD/ABCD4/ABCD4_precessed_data/"
+featurefolder = "/Volumes/Data/ABCD/ABCD4/Analysis/ManipulatedData/"
+nesi_folder <- "/Volumes/sci-psy-narun/Nesi/Yue/"
+
+source(paste0(scriptfold,"stacking_gfactor_modelling/r_functions_fold.R"))
+
+
+```
+
+
+
+# Data Preparation
+
+## load fitted gfactors from brain scan and psychopathology
+
+### load brain scan fitted results from stacking models
+
+```{r}
+rf_baseline <- readRDS(paste0(nesi_folder,"stacking_gfactor_10foldcv/collect_random_forest_results/random_forest_baseline_results.RDS"))
+
+rf_followup <- readRDS(paste0(nesi_folder,"stacking_gfactor_10foldcv/collect_random_forest_results/random_forest_followup_results.RDS"))
+```
+
+### load the psychopathology predicted results
+
+```{r}
+psy_pred <- readRDS(paste0(scriptfold,"Common_psy_gene_brain_all/saved_outputs/psychopathology_pls_pred_no_asr_fold.RData"))
+```
+
+### load the computed gfactor
+
+```{r}
+
+gfactor_list <- readRDS(paste0(nesi_folder,"stacking_gfactor_10foldcv/data/gfactor_scale_seperate_fold",".RData"))
+
+
+```
+
+### genetics predictions
+
+load in genetics related to cognition predicted results 
+
+
+```{r}
+
+genetics_cog <- readRDS(paste0(scriptfold,'genetics_psychopathology_common_scan_all_scripts/psychopathology_cog_gene_pred_residual_fold', '.RData'))
+
+
+```
+
+### Soc-Dem-Life-Dev predictions
+
+```{r}
+
+gfactor_ses <- readRDS(paste0(scriptfold,'genetics_psychopathology_common_scan_all_scripts/ses_pls_pred_fold', '.RData'))
+
+
+```
+
+
+
+## process loaded data
+
+Be careful with what site you choose.
+
+Extract the needed data sets from the list.
+
+```{r}
+
+rf_baseline_pred <- map(rf_baseline,"test_pred")
+rf_baseline_pred_tibble <- map(rf_baseline_pred,"model_predict")
+rf_baseline_table <- map(rf_baseline,"test_data")
+
+rf_followup_pred <- map(rf_followup,"test_pred")
+rf_followup_pred_tibble <- map(rf_followup_pred,"model_predict")
+rf_followup_table <- map(rf_followup,"test_data")
+
+```
+
+
+```{r}
+
+gfactor_baselie_test <- map(gfactor_list,"output_test_baseline")
+gfactor_followup_test <- map(gfactor_list,"output_test_followup")
+
+
+```
+
+```{r}
+subj_info <- c("SRC_SUBJECT_ID","SITE_ID_L","EVENTNAME")
+
+```
+
+### process data of brain and mental health
+
+```{r}
+## this function extract the subject information and join those information to the predicted results
+pred_processing <- function(baseline_pred, followup_pred, baseline_table, followup_table,pred_name){
+  names_vec <- c(subj_info,pred_name)
+  
+  baseline_subj_info <- baseline_table %>% select(all_of(subj_info))
+  baseline_pred_vec <- baseline_pred %>% select(model_predict)
+  baseline_output <- bind_cols(baseline_subj_info,baseline_pred_vec)
+  names(baseline_output) <- names_vec
+  
+  followup_subj_info <- followup_table %>% select(all_of(subj_info))
+  followup_pred_vec <- followup_pred %>% select(model_predict)
+  followup_output <- bind_cols(followup_subj_info,followup_pred_vec)
+  names(followup_output) <- names_vec
+
+  output_all <- bind_rows(baseline_output,followup_output)
+  return(list(baseline_output = baseline_output,
+              followup_output = followup_output))
+}
+
+
+
+
+```
+
+
+
+```{r}
+processed_rf_results <- pmap(list(rf_baseline_pred_tibble,rf_baseline_table,
+                                  rf_followup_pred_tibble,rf_followup_table),
+                             ~pred_processing(baseline_pred=..1,
+                                              followup_pred=..3, 
+                                              baseline_table=..2, 
+                                              followup_table=..4,
+                                              pred_name="random_forest_stacking"))
+
+
+processed_psy_results <- pmap(list(psy_pred[["baseline_test_pred"]],
+                                   psy_pred[["baseline_test_data"]],
+                                  psy_pred[["followup_test_pred"]],
+                                  psy_pred[["followup_test_data"]]),
+                             ~pred_processing(baseline_pred=..1,
+                                              followup_pred=..3, 
+                                              baseline_table=..2, 
+                                              followup_table=..4,
+                                              pred_name="psychopathology"))
+```
+
+```{r}
+
+fold_names <- names(processed_rf_results) %>% set_names()
+
+```
+
+
+
+### process data of genes 
+
+
+```{r}
+genetics_cog_baseline_pred <-genetics_cog[["baseline_test_pred"]]
+genetics_cog_baseline_table <-genetics_cog[["baseline_test_data"]]
+
+genetics_cog_followup_pred <- genetics_cog[["followup_test_pred"]]
+genetics_cog_followup_data <- genetics_cog[["followup_test_data"]]
+
+
+pred_processing_gene <- function(baseline_pred, followup_pred, baseline_table, followup_table,pred_name){
+  names_vec <- c(c("SRC_SUBJECT_ID","SITE_ID_L"),pred_name)
+  
+  baseline_subj_info <- baseline_table %>% select(all_of(c("SRC_SUBJECT_ID","SITE_ID_L")))
+  baseline_pred_vec <- baseline_pred %>% select(model_predict)
+  baseline_output <- bind_cols(baseline_subj_info,baseline_pred_vec)
+  names(baseline_output) <- names_vec
+  
+  followup_subj_info <- followup_table %>% select(all_of(c("SRC_SUBJECT_ID","SITE_ID_L")))
+  followup_pred_vec <- followup_pred %>% select(model_predict)
+  followup_output <- bind_cols(followup_subj_info,followup_pred_vec)
+  names(followup_output) <- names_vec
+
+  output_all <- bind_rows(baseline_output,followup_output)
+  return(list(baseline_output = baseline_output,
+              followup_output = followup_output))
+}
+
+processed_gene_results <- pmap(list(genetics_cog_baseline_pred,genetics_cog_baseline_table,
+                                  genetics_cog_followup_pred,genetics_cog_followup_data),
+                             ~pred_processing_gene(baseline_pred=..1,
+                                              followup_pred=..3, 
+                                              baseline_table=..2, 
+                                              followup_table=..4,
+                                              pred_name="gene_cog"))
+
+
+```
+
+
+
+
+### process the data of Soc-Dem-Life-Dev
+
+
+```{r}
+gfactor_ses_baseline_pred <-gfactor_ses[["baseline_test_pred"]]
+gfactor_ses_baseline_table <-gfactor_ses[["baseline_test_data"]]
+
+gfactor_ses_followup_pred <- gfactor_ses[["followup_test_pred"]]
+gfactor_ses_followup_data <- gfactor_ses[["followup_test_data"]]
+
+
+processed_ses_results <- pmap(list(gfactor_ses_baseline_pred,gfactor_ses_baseline_table,
+                                  gfactor_ses_followup_pred,gfactor_ses_followup_data),
+                             ~pred_processing_gene(baseline_pred=..1,
+                                              followup_pred=..3, 
+                                              baseline_table=..2, 
+                                              followup_table=..4,
+                                              pred_name="ses"))
+
+
+```
+
+
+## join the individual data sets with gfactor
+
+
+```{r}
+
+join_pred_gfactor <- function(data_input, site_input){
+  data_baseline_tibble <- data_input[[site_input]][["baseline_output"]]
+  data_followup_tibble <- data_input[[site_input]][["followup_output"]]
+  
+  gfactor_baseline <- gfactor_baselie_test[[site_input]]
+  gfactor_followup <- gfactor_followup_test[[site_input]]
+
+  output_baseline <- plyr::join_all(list(data_baseline_tibble,gfactor_baseline),by="SRC_SUBJECT_ID",type = "full")%>%
+    drop_na()
+  output_followup <- plyr::join_all(list(data_followup_tibble,gfactor_followup),by="SRC_SUBJECT_ID",type="full")%>%
+    drop_na()
+ output_all <- bind_rows(output_baseline,output_followup)
+  
+  return(list(baseline = output_baseline,
+              followup=output_followup,
+              all = output_all))
+}
+
+
+```
+
+
+Features: stacking brain models, mental health, genes and Soc-Dem-Life-Dev are joined with response variable individually,
+
+
+```{r}
+
+gfactor_rf <- map(.x = fold_names,~join_pred_gfactor(data_input =processed_rf_results, site_input = .x))
+
+
+gfactor_rf_baseline <- map(gfactor_rf,"baseline")%>% do.call(rbind,.)
+gfactor_rf_followup <- map(gfactor_rf,"followup")%>% do.call(rbind,.)
+gfactor_rf_baseline_followup <- map(gfactor_rf,"all")%>% do.call(rbind,.)
+
+
+
+gfactor_psy <- map(.x = fold_names,~join_pred_gfactor(data_input =processed_psy_results, site_input = .x))
+
+
+gfactor_psy_baseline <- map(gfactor_psy,"baseline")%>% do.call(rbind,.)
+gfactor_psy_followup <- map(gfactor_psy,"followup")%>% do.call(rbind,.)
+gfactor_psy_baseline_followup <- map(gfactor_psy,"all")%>% do.call(rbind,.)
+
+
+gfactor_gene <- map(.x = fold_names,~join_pred_gfactor(data_input =processed_gene_results, site_input = .x))
+
+
+gfactor_gene_baseline <- map(gfactor_gene,"baseline")%>% do.call(rbind,.)%>%
+                        filter(gene_cog < 3)
+### try to detect outliers
+map(gfactor_gene,"baseline")%>% do.call(rbind,.)%>%
+                        filter(gene_cog > 3)%>%
+                        print()
+
+gfactor_gene_followup <- map(gfactor_gene,"followup")%>% do.call(rbind,.)%>%
+                        filter(gene_cog < 3)
+gfactor_gene_baseline_followup <- map(gfactor_gene,"all")%>% do.call(rbind,.)%>%
+                        filter(gene_cog < 3)
+
+
+gfactor_ses <- map(.x = fold_names,~join_pred_gfactor(data_input =processed_ses_results, site_input = .x))
+
+
+gfactor_ses_baseline <- map(gfactor_ses,"baseline")%>% do.call(rbind,.)
+gfactor_ses_followup <- map(gfactor_ses,"followup")%>% do.call(rbind,.)
+gfactor_ses_baseline_followup <- map(gfactor_ses,"all")%>% do.call(rbind,.)
+```
+
+## Combine data and creating names
+
+```{r,fig.width=10}
+pred_gfactor_baseline <- list(rf = gfactor_rf_baseline,
+                              psy = gfactor_psy_baseline, 
+                              gene = gfactor_gene_baseline,
+                              ses =gfactor_ses_baseline)
+
+pred_gfactor_followup <- list(rf = gfactor_rf_followup,
+                              psy = gfactor_psy_followup, 
+                              gene = gfactor_gene_followup,
+                              ses =gfactor_ses_followup)
+
+```
+
+
+
+# scatterplots
+
+## Loading the metric lavels
+
+```{r}
+brain_performance_metric <- readRDS(paste0(scriptfold,'Common_psy_gene_brain_all/saved_outputs/performance_metrics/brain_performance_metric_fold', '.RData'))
+
+gene_performance_metric <- readRDS(paste0(scriptfold,'Common_psy_gene_brain_all/saved_outputs/performance_metrics/gene_performance_metric_fold', '.RData'))
+
+mental_health_performance_metric <- readRDS(paste0(scriptfold,'Common_psy_gene_brain_all/saved_outputs/performance_metrics/mental_health_performance_metric_no_asr_fold', '.RData'))
+
+ses_performance_metric <- readRDS(paste0(scriptfold,'Common_psy_gene_brain_all/saved_outputs/performance_metrics/ses_performance_metric_fold', '.RData'))
+```
+## Loading in all the scatterplots from other files
+
+
+
+
+```{r}
+
+scatter_legend <- readRDS(paste0(scriptfold,'Common_psy_gene_brain_all/saved_outputs/scatter_plots/scatter_legend_5.1', '.RData'))
+
+
+scatter_legend_right <- readRDS(paste0(scriptfold,'Common_psy_gene_brain_all/saved_outputs/scatter_plots/scatter_legend_right_5.1', '.RData'))
+
+```
+
+
+
+
+
+```{r}
+names_vec <- c("Mental Health","Neuroimaging",  "Polygenic Scores", "SD LS Dev Adv")
+
+pred_names <- c("random_forest_stacking","psychopathology","gene_cog","ses" )
+## create the labels
+cor_label_vec_baseline <- c(mental_health_performance_metric$`correlation (sd)`[1],
+                            brain_performance_metric$`correlation (sd)`[1],
+                            gene_performance_metric$`correlation (sd)`[1],
+                            ses_performance_metric$`correlation (sd)`[1])
+cor_label_vec_followup <- c(mental_health_performance_metric$`correlation (sd)`[4],
+                            brain_performance_metric$`correlation (sd)`[2],
+                            gene_performance_metric$`correlation (sd)`[2],
+                            ses_performance_metric$`correlation (sd)`[2])
+
+
+scatter_plot_gfactor_new <- function(data_input,name_input,pred_names,cor_labels){
+  
+  scatter_plot <-  ggplot(data_input,aes(x = scale(.data[[pred_names]]) , 
+                     y = scale(.data[["gfactor"]]))) +
+  geom_pointdensity(size = 1) +
+       scale_color_viridis()+
+  geom_smooth(method = 'lm', se = FALSE, col = 'black')  +
+  labs(x = NULL,
+       y = NULL,
+       title = paste (name_input,'\nr = ',cor_labels))+
+     scale_x_continuous(limits=c(-5,5))+
+     scale_y_continuous(limits=c(-5,5))+
+        theme_classic() + 
+             theme(axis.text.x = element_text(size = 35),                      
+                           axis.text.y = element_text(size = 35),                     
+                           plot.title = element_text(size=35)) +
+     theme(
+    strip.background = element_blank(),
+    strip.text.x = element_blank(),
+    legend.position = "none")
+ return(scatter_plot)
+  
+}
+
+
+scatter_plot_baseline_new <- pmap(list(pred_gfactor_baseline,names_vec,pred_names,cor_label_vec_baseline),
+                              ~scatter_plot_gfactor_new(data_input = ..1,
+                                                    name_input = ..2,
+                                                    pred_names = ..3,
+                                                    cor_labels = ..4))
+
+
+
+scatter_plot_followup_new <- pmap(list(pred_gfactor_followup,names_vec,pred_names,cor_label_vec_followup),
+                              ~scatter_plot_gfactor_new(data_input = ..1,
+                                                    name_input = ..2,
+                                                    pred_names = ..3,
+                                                    cor_labels = ..4))
+
+
+```
+
+## Load thr saved outputs
+
+```{r}
+scatter_plot_baseline_5.1 <- readRDS(paste0(scriptfold,'Common_psy_gene_brain_all/saved_outputs/scatter_plots/scatter_plot_baseline_5.1', '.RData'))
+scatter_plot_followup_5.1 <-readRDS(paste0(scriptfold,'Common_psy_gene_brain_all/saved_outputs/scatter_plots/scatter_plot_followup_5.1', '.RData'))
+
+```
+## Arrange the plots with all the mental health features
+
+```{r,fig.width=20,fig.height=15}
+## plots with mental health
+
+scatter_plot_baseline_fold <-ggpubr::ggarrange(plotlist = scatter_plot_baseline_new,
+                                                        ncol = 4,nrow = 1) %>%
+                  #                                      legend.grob = scatter_legend,
+                  #                                      legend="top")%>%
+                ggpubr::annotate_figure(top = ggpubr::text_grob("Baseline",size=45,face="bold",hjust=3.4)) 
+
+
+
+scatter_plot_followup_fold <-ggpubr::ggarrange(plotlist = scatter_plot_followup_new,
+                                                        ncol = 4,nrow = 1)%>%
+                            ggpubr::annotate_figure(top = ggpubr::text_grob("Followup",face="bold",size=45,hjust=3.2))
+
+
+
+scatter_all_grid_fold <- ggpubr::ggarrange(scatter_plot_baseline_fold,scatter_plot_followup_fold,nrow = 2,heights = c(1,1))
+
+labelled_scatter_fold <- ggpubr::annotate_figure(scatter_all_grid_fold,
+                          left= ggpubr::text_grob("Observed Cognitive Abilities (Z)",size=45,rot=90),
+                        bottom = ggpubr::text_grob("Predicted Cognitive Abilities (Z)",size=45),
+                        top = ggpubr::text_grob("10 Fold Cross Validation",size=45, face = "bold"
+                                                )) 
+
+labelled_scatter_fold
+```
+
+
+
+```{r,fig.width=20,fig.height=15}
+## plots with mental health
+
+scatter_plot_baseline_site <-ggpubr::ggarrange(plotlist = scatter_plot_baseline_5.1,
+                                                        ncol = 4,nrow = 1) %>%
+                  #                                      legend.grob = scatter_legend,
+                  #                                      legend="top")%>%
+                ggpubr::annotate_figure(top = ggpubr::text_grob("Baseline",size=45,face="bold",hjust=3.4)) %>%
+  ggpubr::ggarrange(                                    legend.grob = scatter_legend,
+                                                        legend="top")
+
+
+
+scatter_plot_followup_site <-ggpubr::ggarrange(plotlist = scatter_plot_followup_5.1,
+                                                        ncol = 4,nrow = 1)%>%
+                            ggpubr::annotate_figure(top = ggpubr::text_grob("Followup",face="bold",size=45,hjust=3.2))
+
+
+
+scatter_all_grid_site <- ggpubr::ggarrange(scatter_plot_baseline_site,scatter_plot_followup_site,nrow = 2,heights = c(1.2,1))
+
+labelled_scatter_site <- ggpubr::annotate_figure(scatter_all_grid_site,
+                          left= ggpubr::text_grob("Observed Cognitive Abilities (Z)",size=45,rot=90),
+                        bottom = ggpubr::text_grob("Predicted Cognitive Abilities (Z)",size=45),
+                        top = ggpubr::text_grob("Leave One Site out Cross Validation",size=45#, face = "bold"
+                                                )) 
+
+labelled_scatter_site
+```
+
+
+
+
+
+## Combine all site plots together
+
+```{r,fig.width=20,fig.height=30}
+
+scatter_all_site_fold <- ggpubr::ggarrange(labelled_scatter_site,labelled_scatter_fold,nrow = 2,heights = c(1.2,1))
+
+
+labelled_all_site_fold <- ggpubr::annotate_figure(scatter_all_site_fold,
+                        top = ggpubr::text_grob("Camparing the Predictive Performance \nbetween Leave One Site out and 10 Fold Cross Validation",size=45, face = "bold")) 
+
+labelled_all_site_fold
+```
+
