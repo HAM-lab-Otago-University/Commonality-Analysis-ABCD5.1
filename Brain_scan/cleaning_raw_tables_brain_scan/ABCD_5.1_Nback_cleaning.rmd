@@ -1,0 +1,283 @@
+---
+title: "ABCD 5.1 data Nback cleaning"
+author: "Yue Wang and Narun P"
+date:  "`r format(Sys.time(), '%d %b, %Y')`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: united
+    number_sections: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r load_data, echo=FALSE}
+rm(list = ls(all.names = TRUE)) #will clear all objects includes hidden objects.
+gc() #free up memory and report the memory usage.
+```
+
+Due to the changes in the data names in the new ABCD 5.1 release, this file selects variables and changes the variable names with ABCD 5.1 data release. The previous work is based on the ABCD 4.0 data. So, the ABCD 4.0 data tables are loaded and processed first to get the variable names then mapped to the ABCD 5.1 data tables.
+
+
+
+
+# Processing ABCD 5.1 data tables
+
+## Loading libraries
+
+starting with setting up library and script/data folders
+
+```{r}
+rm(list=ls())
+
+library(tidyverse)
+
+```
+
+```{r loading_data, echo=FALSE}
+### the directories for loading up data and files
+
+datafolder_5.1 = '/Volumes/sci-psy-narun/abcd-data-release-5.1/core/imaging/'
+outputfolder_5.1 = "/Volumes/sci-psy-narun/Yue/ABCD_5.1_data_precessing/processed_data/"
+dicfolder_5.1 = '/Volumes/sci-psy-narun/abcd-data-release-5.1/dictionary/'
+featurefolder = "/Volumes/sci-psy-narun/Yue/ABCD_5.1_data_precessing/processed_data/"
+utilFold = "/Volumes/Data/ABCD/ABCD3/Analysis/utilFunc/"
+```
+
+
+## load all of the files
+
+The purpose of this code is:
+
+1. change the variable names and select the needed variables.
+
+2. perform the quality control to all the imaging variables.
+
+```{r load_data2}
+###loading brain scan data (Nback only)
+nback_0b_aseg <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_nback_0b_aseg.csv"))) 
+nback_0b_dst <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_nback_0b_dst.csv"))) 
+nback_0b_dsk <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_nback_0b_dsk.csv"))) 
+
+
+nback_2b_aseg <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_nback_2b_aseg.csv"))) 
+nback_2b_dst <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_nback_2b_dst.csv"))) 
+nback_2b_dsk <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_nback_2b_dsk.csv"))) 
+
+
+nback_2bv0b_aseg <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_nback_2bv0b_aseg.csv"))) 
+nback_2bv0b_dst <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_nback_2bv0b_dst.csv"))) 
+nback_2bv0b_dsk <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_nback_2bv0b_dsk.csv"))) 
+
+
+nback_emo_aseg <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_nback_emo_aseg.csv"))) 
+nback_emo_dst <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_nback_emo_dst.csv"))) 
+nback_emo_dsk <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_nback_emo_dsk.csv"))) 
+
+
+nback_emovntf_aseg <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_nback_emovntf_aseg.csv"))) 
+nback_emovntf_dst <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_nback_emovntf_dst.csv"))) 
+nback_emovntf_dsk <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_nback_emovntf_dsk.csv"))) 
+
+
+nback_fvplc_aseg <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_nback_fvplc_aseg.csv"))) 
+nback_fvplc_dst <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_nback_fvplc_dst.csv"))) 
+nback_fvplc_dsk <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_nback_fvplc_dsk.csv"))) 
+
+
+nback_ngfvntf_aseg <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_nback_ngfvntf_aseg.csv"))) 
+nback_ngfvntf_dst <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_nback_ngfvntf_dst.csv"))) 
+nback_ngfvntf_dsk <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_nback_ngfvntf_dsk.csv"))) 
+
+
+nback_plc_aseg <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_nback_plc_aseg.csv"))) 
+nback_plc_dst <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_nback_plc_dst.csv"))) 
+nback_plc_dsk <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_nback_plc_dsk.csv"))) 
+
+
+nback_psfvntf_aseg <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_nback_psfvntf_aseg.csv"))) 
+nback_psfvntf_dst <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_nback_psfvntf_dst.csv"))) 
+nback_psfvntf_dsk <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_nback_psfvntf_dsk.csv"))) 
+
+### Note that we have not removed NA before Enet tuning to keep the most number of participants
+
+dic_tibble <-tibble::as_tibble(read.csv(paste0(dicfolder_5.1, "2024-01-23_03_20_38.681784-ABCD_Data_Dictionary.csv"))) 
+qc_tibble <-tibble::as_tibble(read.csv(paste0(datafolder_5.1, "mri_y_qc_incl.csv"))) 
+```
+
+
+## processing Nback data
+
+ Deal with the new names in ABCD 5.1
+
+
+```{r}
+### join all the smri data tables and select the needed features 
+### also join this tibble with quality control variables
+nback_all <- plyr::join_all(list(nback_0b_dst,nback_2b_dst,nback_2bv0b_dst,
+                                     nback_emo_dst,nback_emovntf_dst,nback_fvplc_dst,nback_ngfvntf_dst,
+                                     nback_psfvntf_dst,nback_plc_dst,nback_0b_aseg,nback_2b_aseg,nback_2bv0b_aseg,
+                                     nback_emo_aseg,nback_emovntf_aseg,nback_fvplc_aseg,nback_ngfvntf_aseg,
+                                     nback_psfvntf_aseg,nback_plc_aseg,nback_0b_dsk,nback_2b_dsk,nback_2bv0b_dsk,
+                                     nback_emo_dsk,nback_emovntf_dsk,nback_fvplc_dsk,nback_ngfvntf_dsk,
+                                     nback_psfvntf_dsk,nback_plc_dsk), by=c("src_subject_id","eventname" ), type='full')
+
+nback_dst_all <- nback_all %>%
+                 select(all_of(c("src_subject_id","eventname")),starts_with("tfabwdp_"))
+
+
+
+nback_aseg_all <- nback_all%>%
+                 select(all_of(c("src_subject_id","eventname")),starts_with("tfmri_nback_all"))
+
+ 
+## quality control for smri data
+new_subj_info <- c("src_subject_id","eventname")  
+
+qc_features <- qc_tibble %>% select(-all_of(new_subj_info))%>% colnames()
+
+### qc for dst data
+nback_dst_qced <- full_join(nback_dst_all, qc_tibble, by = new_subj_info)%>%
+             filter(imgincl_nback_include==1)%>%
+             select(-all_of(qc_features))
+             
+qc_tibble %>% count(eventname,imgincl_nback_include)
+
+upper_dst_names <- colnames(nback_dst_qced) %>% toupper() 
+
+
+names(nback_dst_qced) <- upper_dst_names
+
+### qc for aseg data
+nback_aseg_qced <- full_join(nback_aseg_all, qc_tibble, by = new_subj_info)%>%
+             filter(imgincl_nback_include==1)%>%
+             select(-all_of(qc_features))
+             
+upper_aseg_names <- colnames(nback_aseg_qced) %>% toupper() 
+
+
+names(nback_aseg_qced) <- upper_aseg_names
+
+
+```
+
+
+
+#### Prep Aseg data
+make the contrast Aseg readable, remove ROIs with white matter and ventricle 
+
+```{r}
+#load the readable names based on dictionary
+AName<-tibble::as_tibble(readxl::read_excel(paste0(utilFold,"NbackAsegApracName_201.xlsx")))
+AConDictNames <- AName %>% select("AConOriginal","AConReadable")
+
+NBackAsegAPac.DictNames <- nback_aseg_qced 
+for (AConROI in 1:nrow(AConDictNames)) {
+  NBackAsegAPac.DictNames  <- NBackAsegAPac.DictNames   %>%
+  rename(!!AConDictNames$AConReadable[AConROI] := !!AConDictNames$AConOriginal[AConROI])  
+}
+
+#only include Aseg
+NBackAseg.DictNames <-NBackAsegAPac.DictNames[1:290]
+
+#take the NBackAseg and look at its prefixes for contrast names
+NBackAseg.ConNames <- NBackAseg.DictNames  %>%
+  select(ends_with("putamenlh")) %>%
+  rename_all(~sub('putamenlh', '', .)) %>%
+  colnames()
+
+#take out ventricle and white matter, leaving 19 areas
+ROI.FS <- NBackAseg.DictNamesTrimmed <- list()
+
+for (conFSNum in 1:length(NBackAseg.ConNames)) {
+  ROI.FS[conFSNum][[1]] <- NBackAseg.DictNames  %>%  select(starts_with(NBackAseg.ConNames[conFSNum])) %>% 
+    select(contains(c("_cerebellumcortexlh","_thalamusproperlh","_caudatelh","_putamenlh","_pallidumlh","_brainstem","_hippocampuslh","_amygdalalh","_accumbensarealh","_ventraldclh","_cerebellumcortexrh","_thalamusproperrh","_caudaterh","_putamenrh","_pallidumrh","hippocampusrh","_amygdalarh","_accumbensarearh","_ventraldcrh"))) %>% colnames()
+  NBackAseg.DictNamesTrimmed[conFSNum][[1]]  <- NBackAseg.DictNames  %>% 
+    select("SRC_SUBJECT_ID" ,"EVENTNAME"  , ROI.FS[conFSNum][[1]]) 
+}
+NBackAseg.DictNamesTrimmedReduced <- 
+  NBackAseg.DictNamesTrimmed %>% reduce(left_join, by = c("SRC_SUBJECT_ID","EVENTNAME"  ))
+
+#load the roi names used in ggseg
+asegNBacktoGGSeg3d<-tibble::as_tibble(read.csv(paste0(utilFold,"asegMIDNBacktoGGSeg3d_19.csv")))
+
+#change the roi names 
+NBackAseg.GgsegNamesTrimmedReduced <- NBackAseg.DictNamesTrimmedReduced
+for (asegROI in 1:nrow(asegNBacktoGGSeg3d)) {
+  NBackAseg.GgsegNamesTrimmedReduced <- NBackAseg.GgsegNamesTrimmedReduced  %>%
+  rename_all(~sub(asegNBacktoGGSeg3d$NBACK[asegROI], 
+                  paste0("ROI_",asegNBacktoGGSeg3d$ggseg3d[asegROI]), .))
+}
+
+
+NBackAseg.GgsegNamesTrimmedReduced%>%count(EVENTNAME)
+```
+
+
+#### Prep Dest data
+1) change the col names to the names in Dict
+2) change the ROI names used in Dict to ggseg3d rois for plotting
+
+```{r}
+
+#load the readable names based on dictionary
+DestName<-tbl_df(readxl::read_excel(paste0(utilFold,"NBACKDestName_201.xlsx")))
+DestConDictNames <- DestName %>% select("DestConOriginal","DestConReadable")
+
+NBackDest.BetaUniq <- nback_dst_qced[,!duplicated(colnames(nback_dst_qced))]
+
+NBackDest.DictNames <- NBackDest.BetaUniq
+for (DestConROI in 1:nrow(DestConDictNames)) {
+  NBackDest.DictNames <- NBackDest.DictNames  %>%
+  rename(!!DestConDictNames$DestConReadable[DestConROI] := !!DestConDictNames$DestConOriginal[DestConROI])  
+}
+
+NBackDestConDictNames<- NBackDest.DictNames  %>%
+ select(ends_with("gandsfrontomarginlh")) %>%
+ rename_all(~sub('gandsfrontomarginlh', '', .)) %>%
+ colnames()
+
+#turns out Dest used the same cont name with Aseg
+#NBackAseg.ConNames == NBackDestConDictNames
+
+NBackDest.DictRoi<- NBackDest.DictNames  %>%
+ select(starts_with("0back_")) %>%
+ rename_all(~sub('0back_', '', .)) %>%
+ colnames()
+
+#turns out Nback used the same Dest  name with MID
+
+#load the roi names used in ggseg
+dictMIDtoGGSeg3d <-tbl_df(read.csv(paste0(utilFold,"dictMIDtoGGSeg3d.csv")))
+#change the roi names 
+NBackDest.GGSeg3dNames<- NBackDest.DictNames
+for (DestROI in 1:nrow(dictMIDtoGGSeg3d )) {
+  NBackDest.GGSeg3dNames <- NBackDest.GGSeg3dNames  %>%
+ #windows
+    # rename_all(~sub(dictMIDtoGGSeg3d$ï..MID[DestROI], paste0("ROI_",dictMIDtoGGSeg3d$ggseg3d[DestROI]), .))
+#linux
+    rename_all(~sub(dictMIDtoGGSeg3d$MID[DestROI], paste0("ROI_",dictMIDtoGGSeg3d$ggseg3d[DestROI]), .))
+  }
+
+```
+
+### Join Aseg and Dest together and export a file
+```{r}
+NBackDestAseg<- plyr::join_all(list(NBackAseg.GgsegNamesTrimmedReduced, NBackDest.GGSeg3dNames), by=c("SRC_SUBJECT_ID","EVENTNAME"  ), type='left')
+NBackDestAseg <- NBackDestAseg[,!duplicated(colnames(NBackDestAseg))]
+```
+
+
+
+
+
+
+```{r}
+write.csv(NBackDestAseg, paste0(featurefolder,"NBackDestAseg.csv"))
+
+```

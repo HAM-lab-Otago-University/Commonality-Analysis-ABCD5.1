@@ -1,0 +1,275 @@
+---
+title: "Scatter plots for predictive performance of each brain modality for baseline and follow-up"
+author: "Yue Wang and Narun P"
+date:  "`r format(Sys.time(), '%d %b, %Y')`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: united
+    number_sections: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r load_data, echo=FALSE}
+rm(list = ls(all.names = TRUE)) #will clear all objects includes hidden objects.
+gc() #free up memory and report the memory usage.
+```
+
+## Note
+Here we the ABCD release 5.1 data-set
+
+# Setting up the environments
+
+## Loading libraries
+The following libraries and default settings were used during the analysis:
+
+
+```{r load_libraries}
+options(scipen = 999)
+#library("sva")
+library(tidyverse)
+library("tidymodels")
+##parallel map
+library(partR2)
+library(lme4)
+library(yhat)
+
+library(partR2)
+library(lme4)
+library(yhat)
+### plotting
+library(ggpointdensity)
+library(ggtext)
+library(ggpubr)
+library(cowplot)
+library(viridis)
+
+theme_set(theme_bw() + theme(panel.grid = element_blank()))
+## parallel processing number of cores register
+all_cores <- parallel::detectCores(logical = FALSE) - 5
+
+doParallel::registerDoParallel(cores = all_cores)
+
+```
+
+## Loading local paths
+
+
+We first loaded all of the relevant data files (not shown here as they refer to local directories):
+
+```{r loading_data, echo=FALSE}
+# from Qnap data windows
+#datafolder = "//np-qnapa/Data/ABCD/ABCD4/ABCD4SQL/"
+#scriptfold = "//np-qnapa/Data/Yue script/"
+#NDAfold = "//np-qnapa/Data/ABCD/ABCD4/ABCDStudyNDA/"
+#utilFold = "//np-qnapa/Data/ABCD/ABCD3/Analysis/utilFunc/"
+#studyNDAFold = "//np-qnapa/Data/ABCD/ABCD4/ABCDStudyNDA/"
+#outputfolder = "//np-qnapa/Data/ABCD/ABCD4/ABCD4_precessed_data/"
+
+### unbuntu directories
+
+#datafolder = "/media/Data/ABCD/ABCD4/ABCD4SQL/"
+#scriptfold = "/media/Data/Yue script/"
+#NDAfold = "/media/Data/ABCD/ABCD4/ABCDStudyNDA/"
+#utilFold = "/media/Data/ABCD/ABCD3/Analysis/utilFunc/"
+#studyNDAFold = "/media/Data/ABCD/ABCD4/ABCDStudyNDA/"
+#outputfolder = "/media/Data/ABCD/ABCD4/ABCD4_precessed_data/"
+#featurefolder = "/media/Data/ABCD/ABCD4/Analysis/ManipulatedData/"
+
+### mac directories
+datafolder = "/Volumes/Data/ABCD/ABCD4/ABCD4SQL/"
+scriptfold = "/Volumes/Data/Yue script/"
+NDAfold = "/Volumes/Data/ABCD/ABCD4/ABCDStudyNDA/"
+utilFold = "/Volumes/Data/ABCD/ABCD3/Analysis/utilFunc/"
+studyNDAFold = "/Volumes/Data/ABCD/ABCD4/ABCDStudyNDA/"
+outputfolder = "/Volumes/Data/ABCD/ABCD4/ABCD4_precessed_data/"
+featurefolder = "/Volumes/Data/ABCD/ABCD4/Analysis/ManipulatedData/"
+nesi_folder <- "/Volumes/sci-psy-narun/Nesi/Yue/"
+
+source(paste0(scriptfold,"stacking_gfactor_modelling/r_functions_5.1.R"))
+
+
+```
+
+
+# Loading and processing data
+
+Get the naming vectors.
+
+```{r}
+subj_info <- c("SRC_SUBJECT_ID","SITE_ID_L","EVENTNAME")
+
+```
+
+
+## Load in enet predicted results
+
+Loading the processed elastic net test predictions. Those tables are extracted from Nesi model fit output files.
+
+```{r}
+enet_baseline_list  <- readRDS(paste0(scriptfold,"stacking_gfactor_modelling/random_forest_data/random_forest_all_baseline_test_5.1.RDS"))
+enet_followup_list <- readRDS(paste0(scriptfold,"stacking_gfactor_modelling/random_forest_data/random_forest_all_followup_test_5.1.RDS"))
+```
+
+```{r}
+enet_baseline_tibble <- enet_baseline_list %>% do.call(rbind,.)
+enet_followup_tibble <- enet_followup_list %>% do.call(rbind,.)
+
+```
+## load fitted gfactors from brain scan and psychopathology
+
+### load brain scan fitted results from stacking models
+
+```{r}
+rf_baseline <- readRDS(paste0(nesi_folder,"stacking_gfactor_modelling/collect_random_forest_results/random_forest_baseline_results.RDS"))
+
+rf_followup <- readRDS(paste0(nesi_folder,"stacking_gfactor_modelling/collect_random_forest_results/random_forest_followup_results.RDS"))
+```
+
+
+Be careful with what site you choose.
+
+```{r}
+
+rf_baseline_pred <- map(rf_baseline,"test_pred")
+rf_baseline_pred_tibble <- map(rf_baseline_pred,"model_predict")
+rf_baseline_table <- map(rf_baseline,"test_data")
+
+rf_baseline_data_select <- rf_baseline_table %>% map(.,~select(.,all_of(subj_info)))
+rf_baseline_pred_select <- rf_baseline_pred_tibble %>% map(.,~select(.,model_predict)%>%
+                                                             rename(rf_pred = model_predict))
+rf_baseline_select <- map2(.x = rf_baseline_data_select,.y = rf_baseline_pred_select,~bind_cols(.x,.y))%>%
+                      do.call(rbind,.)
+
+rf_followup_pred <- map(rf_followup,"test_pred")
+rf_followup_pred_tibble <- map(rf_followup_pred,"model_predict")
+rf_followup_table <- map(rf_followup,"test_data")
+
+rf_followup_data_select <- rf_followup_table %>% map(.,~select(.,all_of(subj_info)))
+rf_followup_pred_select <- rf_followup_pred_tibble %>% map(.,~select(.,model_predict)%>%
+                                                             rename(rf_pred = model_predict))
+rf_followup_select <- map2(.x = rf_followup_data_select,.y = rf_followup_pred_select,~bind_cols(.x,.y))%>%
+                      do.call(rbind,.)
+```
+
+
+### load the mental health predicted results
+
+```{r}
+psy_pred <- readRDS(paste0(scriptfold,"Common_psy_gene_brain_all/saved_outputs/psychopathology_pls_pred_5.1.RData"))
+
+
+psy_baseline_data_select <- psy_pred[["baseline_test_data"]] %>% map(.,~select(.,all_of(subj_info)))
+psy_baseline_pred_select <- psy_pred[["baseline_test_pred"]] %>% map(.,~select(.,model_predict)%>%
+                                                             rename(psy_pred = model_predict))
+psy_baseline_select <- map2(.x = psy_baseline_data_select,.y = psy_baseline_pred_select,~bind_cols(.x,.y))%>%
+                      do.call(rbind,.)
+
+
+psy_followup_data_select <- psy_pred[["followup_test_data"]] %>% map(.,~select(.,all_of(subj_info)))
+psy_followup_pred_select <- psy_pred[["followup_test_pred"]] %>% map(.,~select(.,model_predict)%>%
+                                                             rename(psy_pred = model_predict))
+psy_followup_select <- map2(.x = psy_followup_data_select,.y = psy_followup_pred_select,~bind_cols(.x,.y))%>%
+                      do.call(rbind,.)
+```
+
+
+### load the social demographic lifestyle developmental predicted results
+
+
+```{r}
+ses_pred <- readRDS(paste0(scriptfold,"genetics_psychopathology_common_scan_all_scripts/ses_pls_pred_5.1.RData"))
+
+ses_baseline_data_select <- ses_pred[["baseline_test_data"]] %>% map(.,~select(.,all_of(subj_info)))
+ses_baseline_pred_select <- ses_pred[["baseline_test_pred"]] %>% map(.,~select(.,model_predict)%>%
+                                                             rename(ses_pred = model_predict))
+ses_baseline_select <- map2(.x = ses_baseline_data_select,.y = ses_baseline_pred_select,~bind_cols(.x,.y))%>%
+                      do.call(rbind,.)
+
+
+ses_followup_data_select <- ses_pred[["followup_test_data"]] %>% map(.,~select(.,all_of(subj_info)))
+ses_followup_pred_select <- ses_pred[["followup_test_pred"]] %>% map(.,~select(.,model_predict)%>%
+                                                             rename(ses_pred = model_predict))
+ses_followup_select <- map2(.x = ses_followup_data_select,.y = ses_followup_pred_select,~bind_cols(.x,.y))%>%
+                      do.call(rbind,.)
+```
+
+### Load in genetics related to cognition predicted results 
+
+
+```{r}
+
+genetics_cog <- readRDS(paste0(scriptfold,'genetics_psychopathology_common_scan_all_scripts/psychopathology_cog_gene_pred_residual_5.1', '.RData'))
+
+gene_baseline_data_select <- genetics_cog[["baseline_test_data"]]%>%map(.,~select(.,all_of("SRC_SUBJECT_ID")))
+gene_baseline_pred_select <- genetics_cog[["baseline_test_pred"]] %>% map(.,~select(.,model_predict)%>%
+                                                             rename(gene_pred = model_predict))
+gene_baseline_select <- map2(.x = gene_baseline_data_select,.y = gene_baseline_pred_select,~bind_cols(.x,.y))%>%
+                      do.call(rbind,.)
+
+
+gene_followup_data_select <- genetics_cog[["followup_test_data"]] %>% map(.,~select(.,all_of("SRC_SUBJECT_ID")))
+gene_followup_pred_select <- genetics_cog[["followup_test_pred"]] %>% map(.,~select(.,model_predict)%>%
+                                                             rename(gene_pred = model_predict))
+gene_followup_select <- map2(.x = gene_followup_data_select,.y = gene_followup_pred_select,~bind_cols(.x,.y))%>%
+                      do.call(rbind,.)
+```
+
+### load the computed gfactor
+
+```{r}
+
+gfactor_list <- readRDS(paste0(scriptfold,"genetics_psychopathology_common_scan_all_scripts/gfactor_scale_seperate_5.1.RData"))
+
+
+```
+
+
+```{r}
+
+gfactor_baseline_test <- map(gfactor_list,"output_test_baseline")%>%
+                      do.call(rbind,.)
+gfactor_followup_test <- map(gfactor_list,"output_test_followup")%>%
+                      do.call(rbind,.)
+
+
+```
+
+
+
+
+```{r}
+baseline_pred <- plyr::join_all(list(psy_baseline_select,
+                                         rf_baseline_select,
+                                         ses_baseline_select,
+                                         enet_baseline_tibble),by = subj_info,type = "full")
+
+followup_pred <- plyr::join_all(list(psy_followup_select,
+                                         enet_followup_tibble,
+                                         rf_followup_select,
+                                         ses_followup_select),by = subj_info,type = "full")
+
+
+baseline_pred_all <- plyr::join_all(list(baseline_pred,
+                                         gfactor_baseline_test,
+                                         gene_baseline_select),by = "SRC_SUBJECT_ID",type = "full")
+
+followup_pred_all <- plyr::join_all(list(followup_pred,
+                                         gfactor_followup_test,
+                                         gene_followup_select),by = "SRC_SUBJECT_ID",type = "full")
+
+```
+
+
+```{r}
+saveRDS(baseline_pred_all, paste0(scriptfold,'Common_psy_gene_brain_all/saved_outputs/baseline_pred_all_5.1', '.RData'))
+saveRDS(followup_pred_all, paste0(scriptfold,'Common_psy_gene_brain_all/saved_outputs/followup_pred_all_5.1', '.RData'))
+
+```
+

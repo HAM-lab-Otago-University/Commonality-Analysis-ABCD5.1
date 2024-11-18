@@ -1,0 +1,376 @@
+---
+title: "Prepare data about medication for the commonality analysis"
+author: "Yue Wang and Narun P"
+date:  "`r format(Sys.time(), '%d %b, %Y')`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: united
+    number_sections: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r load_data, echo=FALSE}
+rm(list = ls(all.names = TRUE)) #will clear all objects includes hidden objects.
+gc() #free up memory and report the memory usage.
+```
+
+## Note
+Here we the ABCD release 5.1 data-set
+
+## Loading libraries
+The following libraries and default settings were used during the analysis:
+
+
+```{r load_libraries}
+options(scipen = 999)
+#library("sva")
+library(tidyverse)
+library("tidymodels")
+##parallel map
+
+theme_set(theme_bw() + theme(panel.grid = element_blank()))
+## parallel processing number of cores register
+all_cores <- parallel::detectCores(logical = FALSE) - 10
+
+doParallel::registerDoParallel(cores = all_cores)
+
+```
+
+# Data Preparation
+
+
+We first loaded all of the relevant data files (not shown here as they refer to local directories):
+
+```{r loading_data, echo=FALSE}
+# from Qnap data windows
+#datafolder = "//np-qnapa/Data/ABCD/ABCD4/ABCD4SQL/"
+#scriptfold = "//np-qnapa/Data/Yue script/"
+#NDAfold = "//np-qnapa/Data/ABCD/ABCD4/ABCDStudyNDA/"
+#utilFold = "//np-qnapa/Data/ABCD/ABCD3/Analysis/utilFunc/"
+#studyNDAFold = "//np-qnapa/Data/ABCD/ABCD4/ABCDStudyNDA/"
+#outputfolder = "//np-qnapa/Data/ABCD/ABCD4/ABCD4_precessed_data/"
+
+
+### linux directory
+#datafolder = "/media/Data/ABCD/ABCD4/ABCD4SQL/"
+#scriptfold = "/media/Data/Yue script/"
+#NDAfold = "/media/Data/ABCD/ABCD4/ABCDStudyNDA/"
+#utilFold = "/media/Data/ABCD/ABCD3/Analysis/utilFunc/"
+#studyNDAFold = "/media/Data/ABCD/ABCD4/ABCDStudyNDA/"
+#outputfolder = "/media/Data/ABCD/ABCD4/ABCD4_precessed_data/"
+#featurefolder = "/media/Data/ABCD/ABCD4/Analysis/ManipulatedData/"
+
+### apple directory
+
+datafolder = "/Volumes/Data/ABCD/ABCD4/ABCD4SQL/"
+scriptfold = "/Volumes/Data/Yue script/"
+NDAfold = "/Volumes/Data/ABCD/ABCD4/ABCDStudyNDA/"
+utilFold = "/Volumes/Data/ABCD/ABCD3/Analysis/utilFunc/"
+studyNDAFold = "/Volumes/Data/ABCD/ABCD4/ABCDStudyNDA/"
+outputfolder = "/Volumes/Data/ABCD/ABCD4/ABCD4_precessed_data/"
+featurefolder = "/Volumes/Data/ABCD/ABCD4/Analysis/ManipulatedData/"
+scriptfold_5.1  <- "/Volumes/sci-psy-narun/Nesi/Yue/"
+### save the output
+scriptfold = "/Volumes/Data/Yue script/"
+
+
+source(paste0(scriptfold,"stacking_gfactor_modelling/r_functions_5.1.R"))
+
+
+```
+
+set up parallel
+
+```{r}
+# parallel for ubuntu
+#doParallel::registerDoParallel(cores=30)  
+
+### parallel library for mac
+theme_set(theme_bw() + theme(panel.grid = element_blank()))
+## parallel processing number of cores register
+all_cores <- parallel::detectCores(logical = FALSE) - 5
+
+doParallel::registerDoParallel(cores = all_cores)
+
+## this one works for ubuntu but slow
+#library(doFuture)
+#registerDoFuture()
+#plan(multicore(workers = 30))
+
+### parallel for windows
+
+#library(doFuture)
+#registerDoFuture()
+#plan(multisession(workers = 30))
+```
+
+
+## Loading tables for the medication information
+
+```{r}
+su_y_plus <- read.csv("/Volumes/sci-psy-narun/abcd-data-release-5.1/core/substance-use/su_y_plus.csv",na = c("", "NA", "999", "777"))
+
+su_y_plus_med <- su_y_plus %>% select( "src_subject_id","eventname",contains("med")) %>% arrange(eventname) %>%            
+                              purrr::discard(~all(is.na(.)))### remove columns that are all NAs
+names(su_y_plus_med) <-toupper(colnames(su_y_plus_med))
+
+med_features <- su_y_plus_med %>% select(- all_of(c("SRC_SUBJECT_ID","EVENTNAME"))) %>% colnames()
+
+su_y_plus_med_baseline <- su_y_plus_med %>% filter(EVENTNAME == "baseline_year_1_arm_1")
+
+su_y_plus_med_followup <- su_y_plus_med %>% filter(EVENTNAME == "2_year_follow_up_y_arm_1")
+
+```
+
+
+
+## Processing medication information
+
+ATC/DDD Index 2024
+
+ATC code
+
+A ALIMENTARY TRACT AND METABOLISM
+B BLOOD AND BLOOD FORMING ORGANS
+C CARDIOVASCULAR SYSTEM
+D DERMATOLOGICALS
+G GENITO URINARY SYSTEM AND SEX HORMONES
+H SYSTEMIC HORMONAL PREPARATIONS, EXCL. SEX HORMONES AND INSULINS
+J ANTIINFECTIVES FOR SYSTEMIC USE
+L ANTINEOPLASTIC AND IMMUNOMODULATING AGENTS
+M MUSCULO-SKELETAL SYSTEM
+N NERVOUS SYSTEM
+P ANTIPARASITIC PRODUCTS, INSECTICIDES AND REPELLENTS
+R RESPIRATORY SYSTEM
+S SENSORY ORGANS
+V VARIOUS
+
+
+
+```{r}
+
+med_processing_one_subj <- function(subj_input = subj_vec[12],
+                                    filtered_data = data_input_filter){
+  row_input <- filtered_data %>% filter(SRC_SUBJECT_ID == subj_input)
+# get the numbers of the med information
+    med_info_vec <- row_input %>% select(starts_with("PLS"))  %>% do.call(rbind,.)%>% 
+                                as.vector()   %>% na.omit() %>% 
+                                stringr::word(.,1) %>% as.numeric()
+  ## get the information in the package
+    med_class_vec <- med_info_vec %>% map(.,~rxnorm::get_atc(.,"first"))
+med_class_vec_trial <- med_class_vec %>% do.call(rbind,.) %>% as.vector() %>% unique()
+### create a output tibble
+ output_tibble <- tibble(SRC_SUBJECT_ID =row_input$SRC_SUBJECT_ID,EVENTNAME= row_input$EVENTNAME,
+                         is_ATC_A = ifelse("alimentary tract and metabolism" %in% med_class_vec_trial, 1,0), 
+                         is_ATC_B = ifelse("blood and blood forming organs" %in% med_class_vec_trial, 1,0),
+                         is_ATC_C = ifelse("cardiovascular system" %in% med_class_vec_trial, 1,0),
+                         is_ATC_D = ifelse("dermatologicals" %in% med_class_vec_trial, 1,0),
+                         is_ATC_G = ifelse("genito urinary system and sex hormones" %in% med_class_vec_trial, 1,0),
+                  is_ATC_H = ifelse("systemic hormonal preparations, excl. sex hormones and insulins" %in% med_class_vec_trial, 1,0),
+                         is_ATC_J = ifelse("antiinfectives for systemic use" %in% med_class_vec_trial, 1,0),
+                         is_ATC_L = ifelse("antineoplastic and immunomodulating agents" %in% med_class_vec_trial, 1,0),
+                         is_ATC_M = ifelse("musculo-skeletal system" %in% med_class_vec_trial, 1,0),
+                         is_ATC_N = ifelse("nervous system" %in% med_class_vec_trial, 1,0),
+                         is_ATC_P = ifelse("antiparasitic products, insecticides and repellents" %in% med_class_vec_trial, 1,0),
+                         is_ATC_R = ifelse("respiratory system" %in% med_class_vec_trial, 1,0),
+                         is_ATC_S = ifelse("sensory organs" %in% med_class_vec_trial, 1,0),
+                         is_ATC_V = ifelse("various" %in% med_class_vec_trial, 1,0)) 
+ return(output_tibble)
+}
+
+
+
+
+med_processing <- function(data_input = su_y_plus_med_baseline){
+  ### drop the rows when this row has all NAs
+  data_input_na_list <- med_features %>% map(.,~is.na(data_input[[.]])) %>% do.call(cbind,.) 
+  data_input_na_sum_vec <- rowSums(data_input_na_list)
+  data_input_na_sum <- tibble (na_sum = data_input_na_sum_vec,
+                               SRC_SUBJECT_ID=  data_input$SRC_SUBJECT_ID) %>% 
+                       filter(na_sum < 18)
+  ### filter out the participants that have some sort of medication entry
+ data_input_filter <- data_input %>% filter(SRC_SUBJECT_ID %in% data_input_na_sum$SRC_SUBJECT_ID)
+  
+ subj_vec <- data_input_filter$SRC_SUBJECT_ID
+ #trial_subj_vec <- subj_vec[1:5]
+ 
+# med_info_table_trial <- trial_subj_vec %>% map(.,~med_processing_one_subj(subj_input = ., filtered_data = data_input_filter )) %>% 
+#                        do.call(rbind,.)
+ 
+ med_info_table <- subj_vec %>% map(.,~med_processing_one_subj(subj_input = ., filtered_data = data_input_filter )) %>% 
+                        do.call(rbind,.)
+ 
+ 
+return(med_info_table)
+}
+
+```
+
+ get the med information on baseline and followup
+ 
+```{r,eval=FALSE}
+
+baseline_med_info <- med_processing(data_input = su_y_plus_med_baseline)
+## change the other observations in the data table to be 0 in dummy variables created for med information  
+baseline_no_med_info<- su_y_plus_med_baseline %>% filter(! SRC_SUBJECT_ID %in% baseline_med_info$SRC_SUBJECT_ID) %>% 
+                                                  select("SRC_SUBJECT_ID" , "EVENTNAME" ) %>% 
+                 mutate(is_ATC_A = 0, 
+                  is_ATC_B = 0,
+                  is_ATC_C = 0,
+                  is_ATC_D = 0,
+                  is_ATC_G = 0,
+                  is_ATC_H = 0,
+                  is_ATC_J = 0,
+                  is_ATC_L =0,
+                  is_ATC_M = 0,
+                  is_ATC_N = 0,
+                  is_ATC_P = 0,
+                  is_ATC_R = 0,
+                  is_ATC_S = 0,
+                  is_ATC_V = 0)
+
+baseline_meds <- bind_rows(baseline_med_info,baseline_no_med_info)
+  
+followup_med_info <-  med_processing(data_input = su_y_plus_med_followup)
+
+
+
+## change the other observations in the data table to be 0 in dummy variables created for med information  
+followup_no_med_info<- su_y_plus_med_followup %>% filter(! SRC_SUBJECT_ID %in% followup_med_info$SRC_SUBJECT_ID) %>% 
+                                                  select("SRC_SUBJECT_ID" , "EVENTNAME" ) %>% 
+                 mutate(is_ATC_A = 0, 
+                  is_ATC_B = 0,
+                  is_ATC_C = 0,
+                  is_ATC_D = 0,
+                  is_ATC_G = 0,
+                  is_ATC_H = 0,
+                  is_ATC_J = 0,
+                  is_ATC_L =0,
+                  is_ATC_M = 0,
+                  is_ATC_N = 0,
+                  is_ATC_P = 0,
+                  is_ATC_R = 0,
+                  is_ATC_S = 0,
+                  is_ATC_V = 0)
+followup_meds <- bind_rows(followup_med_info,followup_no_med_info)
+
+med_info_all <- bind_rows(baseline_meds,followup_meds)
+```
+
+
+```{r,eval=FALSE}
+
+
+saveRDS(med_info_all,paste0(scriptfold,'Common_psy_gene_brain_all/saved_outputs/performance_metrics/med_info_all_5.1', '.RData'))
+
+
+```
+
+## Loading medication information for tables
+
+
+```{r}
+med_info_all <- readRDS(paste0(scriptfold,'Common_psy_gene_brain_all/saved_outputs/performance_metrics/med_info_all_5.1', '.RData'))
+
+```
+
+
+create medication information table
+
+```{r,results='asis'}
+med_info_baseline <- med_info_all %>% filter(EVENTNAME == "baseline_year_1_arm_1")
+
+med_info_baseline_num <- med_info_baseline %>% select_if(is.numeric) %>% colSums()
+
+med_sum_baseline <- tibble(Functionality = c("alimentary tract and metabolism",
+"blood and blood forming organs",
+"cardiovascular system",
+"dermatologicals",
+"genito urinary system and sex hormones",
+"systemic hormonal preparations, excl. sex hormones and insulins",
+"antiinfectives for systemic use", 
+"antineoplastic and immunomodulating agents",
+"musculo-skeletal system",
+"nervous system",
+"antiparasitic products, insecticides and repellents", 
+"respiratory system",
+"sensory organs","various"
+),
+Number = med_info_baseline_num)
+
+
+med_sum_baseline%>%
+  kableExtra::kbl(caption = paste0("Count of all the observations that took medication in baseline")) %>%
+    kableExtra::kable_classic(full_width = F, 
+                             html_font = "Cambria")
+
+
+
+```
+
+
+```{r,results='asis'}
+med_info_followup <- med_info_all %>% filter(EVENTNAME == "2_year_follow_up_y_arm_1")
+
+med_info_followup_num <- med_info_followup %>% select_if(is.numeric) %>% colSums()
+
+med_sum_followup <- tibble(Functionality = c("alimentary tract and metabolism",
+"blood and blood forming organs",
+"cardiovascular system",
+"dermatologicals",
+"genito urinary system and sex hormones",
+"systemic hormonal preparations, excl. sex hormones and insulins",
+"antiinfectives for systemic use", 
+"antineoplastic and immunomodulating agents",
+"musculo-skeletal system",
+"nervous system",
+"antiparasitic products, insecticides and repellents", 
+"respiratory system",
+"sensory organs","various"
+),
+Number = med_info_followup_num)
+
+
+med_sum_followup%>%
+  kableExtra::kbl(caption = paste0("Count of all the observations that took medication in followup")) %>%
+    kableExtra::kable_classic(full_width = F, 
+                             html_font = "Cambria")
+
+
+```
+
+
+```{r,results='asis'}
+
+med_sum_all <- tibble(Functionality = c("alimentary tract and metabolism",
+"blood and blood forming organs",
+"cardiovascular system",
+"dermatologicals",
+"genito urinary system and sex hormones",
+"systemic hormonal preparations, excl. sex hormones and insulins",
+"antiinfectives for systemic use", 
+"antineoplastic and immunomodulating agents",
+"musculo-skeletal system",
+"nervous system",
+"antiparasitic products, insecticides and repellents", 
+"respiratory system",
+"sensory organs","various"
+),Baseline = med_info_baseline_num,
+Followup = med_info_followup_num)
+
+
+med_sum_all%>%
+  kableExtra::kbl(caption = paste0("Count of all the observations that took medication")) %>%
+    kableExtra::kable_classic(full_width = F, 
+                             html_font = "Cambria")
+
+
+```
+

@@ -1,0 +1,163 @@
+---
+title: "ABCD 5.1 data Nback cleaning"
+author: "Yue Wang and Narun P"
+date:  "`r format(Sys.time(), '%d %b, %Y')`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: united
+    number_sections: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r load_data, echo=FALSE}
+rm(list = ls(all.names = TRUE)) #will clear all objects includes hidden objects.
+gc() #free up memory and report the memory usage.
+```
+
+Due to the changes in the data names in the new ABCD 5.1 release, this file selects variables and changes the variable names with ABCD 5.1 data release. The previous work is based on the ABCD 4.0 data. So, the ABCD 4.0 data tables are loaded and processed first to get the variable names then mapped to the ABCD 5.1 data tables.
+
+
+
+
+# Processing ABCD 5.1 data tables
+
+## Loading libraries
+
+starting with setting up library and script/data folders
+
+```{r}
+rm(list=ls())
+
+library(tidyverse)
+
+```
+
+```{r loading_data, echo=FALSE}
+### the directories for loading up data and files
+
+datafolder_5.1 = '/Volumes/sci-psy-narun/abcd-data-release-5.1/core/imaging/'
+outputfolder_5.1 = "/Volumes/sci-psy-narun/Yue/ABCD_5.1_data_precessing/processed_data/"
+dicfolder_5.1 = '/Volumes/sci-psy-narun/abcd-data-release-5.1/dictionary/'
+featurefolder = "/Volumes/sci-psy-narun/Yue/ABCD_5.1_data_precessing/processed_data/"
+utilFold = "/Volumes/Data/ABCD/ABCD3/Analysis/utilFunc/"
+```
+
+
+## load all of the files
+
+The purpose of this code is:
+
+1. change the variable names and select the needed variables.
+
+2. perform the quality control to all the imaging variables.
+
+```{r load_data2}
+###loading brain scan data (Nback only)
+mri_y_dti_fa_fs_at <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_dti_fa_fs_at.csv"))) 
+mri_y_dti_fa_fs_aseg <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_dti_fa_fs_aseg.csv"))) 
+mri_y_dti_fa_fs_gm_dsk <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_dti_fa_fs_gm_dsk.csv"))) 
+mri_y_dti_fa_fs_gwc_dsk <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_dti_fa_fs_gwc_dsk.csv"))) 
+mri_y_dti_fa_fs_wm_dsk <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_dti_fa_fs_wm_dsk.csv"))) 
+
+
+mri_y_dti_ld_fs_at <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_dti_ld_fs_at.csv"))) 
+mri_y_dti_ld_fs_aseg <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_dti_ld_fs_aseg.csv"))) 
+mri_y_dti_ld_fs_gm_dsk <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_dti_ld_fs_gm_dsk.csv"))) 
+
+
+
+mri_y_dti_md_fs_at <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_dti_md_fs_at.csv"))) 
+mri_y_dti_md_fs_aseg <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_dti_md_fs_aseg.csv"))) 
+mri_y_dti_md_fs_gm_dsk <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_dti_md_fs_gm_dsk.csv"))) 
+mri_y_dti_md_fs_wm_dsk <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_dti_md_fs_wm_dsk.csv"))) 
+
+
+
+mri_y_dti_td_fs_at <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_dti_td_fs_at.csv"))) 
+mri_y_dti_td_fs_aseg <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_dti_td_fs_aseg.csv"))) 
+mri_y_dti_td_fs_gm_dsk <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_dti_td_fs_gm_dsk.csv"))) 
+mri_y_dti_td_fs_wm_dsk <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_dti_td_fs_wm_dsk.csv"))) 
+
+
+mri_y_dti_vol_fs_at <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_dti_vol_fs_at.csv"))) 
+
+### Note that we have not removed NA before Enet tuning to keep the most number of participants
+
+dic_tibble <-tibble::as_tibble(read.csv(paste0(dicfolder_5.1, "2024-01-23_03_20_38.681784-ABCD_Data_Dictionary.csv"))) 
+qc_tibble <-tibble::as_tibble(read.csv(paste0(datafolder_5.1, "mri_y_qc_incl.csv"))) 
+```
+
+
+## processing Nback data
+
+ Deal with the new names in ABCD 5.1
+
+
+```{r}
+### join all the smri data tables and select the needed features 
+### also join this tibble with quality control variables
+dti_all <- plyr::join_all(list(mri_y_dti_fa_fs_at,mri_y_dti_fa_fs_aseg,mri_y_dti_fa_fs_gm_dsk,
+                                 mri_y_dti_fa_fs_gwc_dsk,mri_y_dti_fa_fs_wm_dsk,mri_y_dti_ld_fs_at, 
+                                 mri_y_dti_ld_fs_aseg,mri_y_dti_ld_fs_gm_dsk,mri_y_dti_md_fs_at,
+                                 mri_y_dti_md_fs_aseg,mri_y_dti_md_fs_gm_dsk,mri_y_dti_md_fs_wm_dsk,
+                                 mri_y_dti_td_fs_at, mri_y_dti_td_fs_aseg,mri_y_dti_td_fs_gm_dsk,
+                                 mri_y_dti_td_fs_wm_dsk, mri_y_dti_vol_fs_at), by=c("src_subject_id","eventname" ), type='full')
+
+dti_select <- dti_all %>%
+                 select(all_of(c("src_subject_id","eventname")),starts_with("dmdtifp1_"))
+
+ 
+## quality control for smri data
+new_subj_info <- c("src_subject_id","eventname")  
+
+qc_features <- qc_tibble %>% select(-all_of(new_subj_info))%>% colnames()
+
+### qc for dst data
+dti_qced <- full_join(dti_select, qc_tibble, by = new_subj_info)%>%
+             filter(imgincl_dmri_include==1)%>%
+             select(-all_of(qc_features))
+             
+qc_tibble %>% count(eventname,imgincl_dmri_include)
+
+upper_dti_names <- colnames(dti_qced) %>% toupper() 
+
+
+names(dti_qced) <- upper_dti_names
+
+```
+
+
+
+### Load dict and change names and select only the FA of the 23 tracks 
+
+```{r}
+
+#load the readable names based on dictionary
+DTIVarNames<-tbl_df(readxl::read_excel(paste0(utilFold,"DTIVariableToImport.xlsx"))) %>% 
+  select(UpperOriginal, Readable23HaglerTracks) %>% drop_na(Readable23HaglerTracks)
+
+#change the names
+DTI.DictNames <- dti_qced
+for (DTIVar in 1:nrow(DTIVarNames)) {
+  DTI.DictNames <- DTI.DictNames %>%
+  rename(!!DTIVarNames$Readable23HaglerTracks[DTIVar] := !!DTIVarNames$UpperOriginal[DTIVar])
+}
+
+# only focus on the 23 tracks in Haggler 2009 Atlas
+DTI.23Tracks <- DTI.DictNames %>% select(-starts_with("DMDTIFP"))
+
+```
+
+### write on file
+```{r}
+
+write.csv(DTI.23Tracks, paste0(featurefolder,"DTI_FA23Tracks.csv"))
+```
+

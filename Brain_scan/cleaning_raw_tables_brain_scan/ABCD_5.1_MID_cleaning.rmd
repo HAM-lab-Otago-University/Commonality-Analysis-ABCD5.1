@@ -1,0 +1,292 @@
+---
+title: "ABCD 5.1 data MID cleaning"
+author: "Yue Wang and Narun P"
+date:  "`r format(Sys.time(), '%d %b, %Y')`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: united
+    number_sections: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r load_data, echo=FALSE}
+rm(list = ls(all.names = TRUE)) #will clear all objects includes hidden objects.
+gc() #free up memory and report the memory usage.
+```
+
+Due to the changes in the data names in the new ABCD 5.1 release, this file selects variables and changes the variable names with ABCD 5.1 data release. The previous work is based on the ABCD 4.0 data. So, the ABCD 4.0 data tables are loaded and processed first to get the variable names then mapped to the ABCD 5.1 data tables.
+
+
+
+
+# Processing ABCD 5.1 data tables
+
+## Loading libraries
+
+starting with setting up library and script/data folders
+
+```{r}
+rm(list=ls())
+
+library(tidyverse)
+
+```
+
+```{r loading_data, echo=FALSE}
+### the directories for loading up data and files
+
+datafolder_5.1 = '/Volumes/sci-psy-narun/abcd-data-release-5.1/core/imaging/'
+outputfolder_5.1 = "/Volumes/sci-psy-narun/Yue/ABCD_5.1_data_precessing/processed_data/"
+dicfolder_5.1 = '/Volumes/sci-psy-narun/abcd-data-release-5.1/dictionary/'
+featurefolder = "/Volumes/sci-psy-narun/Yue/ABCD_5.1_data_precessing/processed_data/"
+utilFold = "/Volumes/Data/ABCD/ABCD3/Analysis/utilFunc/"
+```
+
+
+## load all of the files
+
+The purpose of this code is:
+
+1. change the variable names and select the needed variables.
+
+2. perform the quality control to all the imaging variables.
+
+```{r load_data2}
+###loading brain scan data (Nback only)
+mri_y_tfmr_mid_allvn_aseg <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_mid_allvn_aseg.csv"))) 
+mri_y_tfmr_mid_allvn_dsk <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_mid_allvn_dsk.csv"))) 
+mri_y_tfmr_mid_allvn_dst <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_mid_allvn_dst.csv"))) 
+
+
+mri_y_tfmr_mid_alrvn_aseg <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_mid_alrvn_aseg.csv"))) 
+mri_y_tfmr_mid_alrvn_dsk <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_mid_alrvn_dsk.csv"))) 
+mri_y_tfmr_mid_alrvn_dst <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_mid_alrvn_dst.csv"))) 
+
+
+mri_y_tfmr_mid_alvn_aseg <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_mid_alvn_aseg.csv"))) 
+mri_y_tfmr_mid_alvn_dsk <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_mid_alvn_dsk.csv"))) 
+mri_y_tfmr_mid_alvn_dst <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_mid_alvn_dst.csv"))) 
+
+
+mri_y_tfmr_mid_alvsl_aseg <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_mid_alvsl_aseg.csv"))) 
+mri_y_tfmr_mid_alvsl_dsk <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_mid_alvsl_dsk.csv"))) 
+mri_y_tfmr_mid_alvsl_dst <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_mid_alvsl_dst.csv"))) 
+
+
+mri_y_tfmr_mid_alvsr_aseg <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_mid_alvsr_aseg.csv"))) 
+mri_y_tfmr_mid_alvsr_dsk <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_mid_alvsr_dsk.csv"))) 
+mri_y_tfmr_mid_alvsr_dst <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_mid_alvsr_dst.csv"))) 
+
+
+mri_y_tfmr_mid_arvn_aseg <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_mid_arvn_aseg.csv"))) 
+mri_y_tfmr_mid_arvn_dsk <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_mid_arvn_dsk.csv"))) 
+mri_y_tfmr_mid_arvn_dst <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_mid_arvn_dst.csv"))) 
+
+
+mri_y_tfmr_mid_aslvn_aseg <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_mid_aslvn_aseg.csv"))) 
+mri_y_tfmr_mid_aslvn_dsk <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_mid_aslvn_dsk.csv"))) 
+mri_y_tfmr_mid_aslvn_dst <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_mid_aslvn_dst.csv"))) 
+
+
+mri_y_tfmr_mid_asrvn_aseg <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_mid_asrvn_aseg.csv"))) 
+mri_y_tfmr_mid_asrvn_dsk <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_mid_asrvn_dsk.csv"))) 
+mri_y_tfmr_mid_asrvn_dst <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_mid_asrvn_dst.csv"))) 
+
+
+mri_y_tfmr_mid_lpvnf_aseg <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_mid_lpvnf_aseg.csv"))) 
+mri_y_tfmr_mid_lpvnf_dsk <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_mid_lpvnf_dsk.csv"))) 
+mri_y_tfmr_mid_lpvnf_dst <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_mid_lpvnf_dst.csv"))) 
+
+
+mri_y_tfmr_mid_rpvnf_aseg <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_mid_rpvnf_aseg.csv"))) 
+mri_y_tfmr_mid_rpvnf_dsk <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_mid_rpvnf_dsk.csv"))) 
+mri_y_tfmr_mid_rpvnf_dst <-tibble::as_tibble(read.csv(paste0(datafolder_5.1,"mri_y_tfmr_mid_rpvnf_dst.csv"))) 
+### Note that we have not removed NA before Enet tuning to keep the most number of participants
+
+dic_tibble <-tibble::as_tibble(read.csv(paste0(dicfolder_5.1, "2024-01-23_03_20_38.681784-ABCD_Data_Dictionary.csv"))) 
+qc_tibble <-tibble::as_tibble(read.csv(paste0(datafolder_5.1, "mri_y_qc_incl.csv"))) 
+```
+
+
+```{r}
+
+### join all the smri data tables and select the needed features 
+### also join this tibble with quality control variables
+MID_all <- plyr::join_all(list(mri_y_tfmr_mid_allvn_aseg,mri_y_tfmr_mid_allvn_dsk,mri_y_tfmr_mid_allvn_dst,
+                               mri_y_tfmr_mid_alrvn_aseg,mri_y_tfmr_mid_alrvn_dsk,mri_y_tfmr_mid_alrvn_dst, 
+                               mri_y_tfmr_mid_alvn_aseg,mri_y_tfmr_mid_alvn_dsk,mri_y_tfmr_mid_alvn_dst,
+                               mri_y_tfmr_mid_alvsl_aseg,mri_y_tfmr_mid_alvsl_dsk,mri_y_tfmr_mid_alvsl_dst,
+                               mri_y_tfmr_mid_alvsr_aseg, mri_y_tfmr_mid_alvsr_dsk, mri_y_tfmr_mid_alvsr_dst,
+                               mri_y_tfmr_mid_arvn_aseg,mri_y_tfmr_mid_arvn_dsk, mri_y_tfmr_mid_arvn_dst,
+                               mri_y_tfmr_mid_aslvn_aseg, mri_y_tfmr_mid_aslvn_dsk, mri_y_tfmr_mid_aslvn_dst,
+                               mri_y_tfmr_mid_asrvn_aseg, mri_y_tfmr_mid_asrvn_dsk,mri_y_tfmr_mid_asrvn_dst, 
+                               mri_y_tfmr_mid_lpvnf_aseg,mri_y_tfmr_mid_lpvnf_dsk,mri_y_tfmr_mid_lpvnf_dst,
+                               mri_y_tfmr_mid_rpvnf_aseg, mri_y_tfmr_mid_rpvnf_dsk, mri_y_tfmr_mid_rpvnf_dst),             
+                          by=c("src_subject_id","eventname" ), type='full')
+
+## column "TFMRI_MA_ACGML_B_SCS_AARH_VNDCRH" is missing!! 
+##My educated guess tells me it's  TFMRI_MA_ALVSL_B_SCS_VTDCRH 
+
+MID_all <- rename(MID_all,  tfmri_ma_acgml_b_scs_vndcrh =  tfmri_ma_alvsl_b_scs_vtdcrh) #For renaming tibble column
+
+
+MID_dst_all <- MID_all %>%
+                 select(all_of(c("src_subject_id","eventname")),starts_with("midabwdp"))
+
+
+
+MID_aseg_all <- MID_all%>%
+                 select(all_of(c("src_subject_id","eventname")),contains(c("_b_scs_")))
+
+
+## quality control for smri data
+new_subj_info <- c("src_subject_id","eventname")  
+
+qc_features <- qc_tibble %>% select(-all_of(new_subj_info))%>% colnames()
+
+### qc for dst data
+MID_dst_qced <- full_join(MID_dst_all, qc_tibble, by = new_subj_info)%>%
+             filter(imgincl_mid_include==1)%>%
+             select(-all_of(qc_features))
+             
+qc_tibble %>% count(eventname,imgincl_mid_include)
+
+upper_dst_names <- colnames(MID_dst_qced) %>% toupper() 
+
+
+names(MID_dst_qced) <- upper_dst_names
+
+### qc for aseg data
+MID_aseg_qced <- full_join(MID_aseg_all, qc_tibble, by = new_subj_info)%>%
+             filter(imgincl_mid_include==1)%>%
+             select(-all_of(qc_features))
+             
+upper_aseg_names <- colnames(MID_aseg_qced) %>% toupper() 
+
+
+names(MID_aseg_qced) <- upper_aseg_names
+
+
+
+
+```
+
+
+
+
+## Prep Aseg data
+make the contrast Aseg readable, remove ROIs with white matter and ventricle 
+
+```{r}
+asegMIDtoGGSeg3d<-tibble::as_tibble(read.csv(paste0(utilFold,"asegMIDtoGGSeg3d_19.csv")))
+
+
+MIDAseg.ConNames <- MID_aseg_qced  %>%
+  select(ends_with("CBWMLH")) %>%
+  rename_all(~sub('CBWMLH', '', .)) %>%
+  colnames()
+
+conNames <- c("antiRewVsNeu", 
+              "antiLosVsNeu", 
+              "feedRewPosVsNeg", 
+              "feedPunPosVsNeg", 
+              "antiLargeRewVsNeu", 
+              "antiSmallRewVsNeu", 
+              "antiLargeRewVsSmallRew", 
+              "antiLargeLossVsNeu", 
+              "antiSmallLossVsNeu", 
+              "antiLargeLossVsSmallLoss") 
+
+MIDAseg.Sub <- MID_aseg_qced %>% select("SRC_SUBJECT_ID","EVENTNAME")
+
+ROI.FS <- MIDAseg.BetaRenamed <- list()
+#take out ventricle and white matter, leaving 19 areas
+for (conFSNum in 1:length(MIDAseg.ConNames)) {
+  ROI.FS[conFSNum][[1]] <- MID_aseg_qced  %>%  select(contains(MIDAseg.ConNames[conFSNum])) %>% 
+    select(contains(asegMIDtoGGSeg3d$MID)) %>% colnames()
+  MIDAseg.BetaRenamed[conFSNum][[1]]  <- MID_aseg_qced  %>% 
+    select("SRC_SUBJECT_ID","EVENTNAME", ROI.FS[conFSNum][[1]]) %>% 
+    rename_at(vars(contains(MIDAseg.ConNames[conFSNum])), 
+              funs(sub(MIDAseg.ConNames[conFSNum], conNames[conFSNum], .))) 
+    # rename_at(vars(contains(MIDAseg.ConNames[conFSNum])), 
+    #           list(~sub(MIDAseg.ConNames[conFSNum], ~conNames[conFSNum], .))) 
+}
+
+MIDAseg.BetaConRenamed <- MIDAseg.BetaRenamed %>% reduce(left_join, by = c("SRC_SUBJECT_ID","EVENTNAME"))
+
+
+#change the contrast names
+#MIDAseg.BetaConRenamed <- readableConMIDAsegABCD3(MIDAseg.Beta)
+
+#load the roi names used in ggseg
+
+#change the roi names 
+MIDAseg.BetaConRoiRenamed <- MIDAseg.BetaConRenamed 
+for (asegROI in 1:nrow(asegMIDtoGGSeg3d)) {
+  MIDAseg.BetaConRoiRenamed <- MIDAseg.BetaConRoiRenamed  %>%
+  rename_all(~sub(asegMIDtoGGSeg3d$MID[asegROI], paste0("_ROI_",asegMIDtoGGSeg3d$ggseg3d[asegROI]), .))
+}
+```
+
+## Prep Dest data
+1) change the col names to the names in Dict
+2) change the contrast names used in Dict to the same name used for Aseg
+3) change the ROI names used in Dict to ggseg3d rois for plotting
+
+```{r}
+#load the readable names based on dictionary
+DestName<-tibble::as_tibble(readxl::read_excel(paste0(utilFold,"MIDDestName_201.xlsx")))
+DestConDictNames <- DestName %>% select("DestConOriginal","DestConReadable")
+
+MIDDest.BetaUniq <- MID_dst_qced[,!duplicated(colnames(MID_dst_qced))]
+
+MIDDest.DictNames <- MIDDest.BetaUniq 
+for (DestConROI in 1:nrow(DestConDictNames)) {
+  MIDDest.DictNames <- MIDDest.DictNames  %>%
+  rename(!!DestConDictNames$DestConReadable[DestConROI] := !!DestConDictNames$DestConOriginal[DestConROI])  
+}
+
+#load cont names used in ASEG 
+MIDDestConToCommonCont<-tibble::as_tibble(read.csv(paste0(utilFold,"MIDDestConToCommonCont.csv")))
+
+#change the cont names to match those in ASEG
+MIDDest.DictNamesCommonCont <- MIDDest.DictNames
+for (CommonCont in 1:nrow(MIDDestConToCommonCont)) {
+  MIDDest.DictNamesCommonCont <- MIDDest.DictNamesCommonCont  %>%
+  rename_all(~sub(MIDDestConToCommonCont$DestConReadable[CommonCont], MIDDestConToCommonCont$MidConNames[CommonCont], .))
+}
+
+#load the roi names used in ggseg
+dictMIDtoGGSeg3d <-tibble::as_tibble(read.csv(paste0(utilFold,"dictMIDtoGGSeg3d.csv")))
+#change the roi names 
+MIDDest.GGSec3dNamesCommonCont <- MIDDest.DictNamesCommonCont
+for (DestROI in 1:nrow(dictMIDtoGGSeg3d )) {
+  MIDDest.GGSec3dNamesCommonCont <- MIDDest.GGSec3dNamesCommonCont  %>%
+  rename_all(~sub(dictMIDtoGGSeg3d$MID[DestROI], paste0("_ROI_",dictMIDtoGGSeg3d$ggseg3d[DestROI]), .))
+}
+
+```
+
+# Join Aseg and Dest together and export a file
+```{r}
+MIDDestAseg<- plyr::join_all(list(MIDAseg.BetaConRoiRenamed, MIDDest.GGSec3dNamesCommonCont), by=c("SRC_SUBJECT_ID","EVENTNAME"), type='left')
+MIDDestAseg <- MIDDestAseg[,!duplicated(colnames(MIDDestAseg))]
+#write.csv(MIDDestAseg , paste0(manipuFold,"MIDDestAsegReadableGgseg3d.csv"))
+```
+
+
+# save the data files
+
+```{r}
+
+
+write.csv(MIDDestAseg, paste0(featurefolder,"MIDDestAseg.csv"))
+
+```
