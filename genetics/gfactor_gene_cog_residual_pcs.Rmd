@@ -163,10 +163,12 @@ identical(General_Cognitive_Function_Davies$SRC_SUBJECT_ID,Cognitive_Performance
 ## find out the IDs that are in the genetic data table not in the site data table 
 #uncorrected_id <- setdiff(General_Cognitive_Function_Davies$SRC_SUBJECT_ID,Site_baseline$SRC_SUBJECT_ID)
 ## These are the mismatched IDs if the previous code does not run, run this
-uncorrected_id <- c("NDAR_INV3GFFD7GXB","NDAR_INV3PTRFM5","NDAR_INV44RDE6R","NDAR_INV5LMTFDU","NDAR_INV64PZCK82","NDAR_INV67KWNPR7","NDAR_INV6D8NMY0B","NDAR_INV9PUZ8D0B","NDAR_INVANUGPBRY","NDAR_INVK6RANURAB","NDAR_INVK71S0G4Z","NDAR_INVLW9XT5PS","NDAR_INVP39ZM2J","NDAR_INVPF0NSFWX","NDAR_INVTBYKL2UL","NDAR_INVUKK77ZR","NDAR_INVURZU1N9B","NDAR_INVVR39TB4C","NDAR_INVX6KVGNJ","NDAR_INVYUTT0RGD","NDARINVPWLFYWTX")
 
+id_list <- readRDS(paste0(scriptfold,'Common_psy_gene_brain_all/saved_outputs/performance_metrics/gene_idlist', '.RData'))
 
-corrected_id <- c("NDAR_INV3GFD7GXB","NDAR_INV3PTPRFM5","NDAR_INVV44RDE6R","NDAR_INV5LM4TFDU","NDAR_INV6UPZCK82","NDAR_INV67KWVPR7","NDAR_INVGD8NMY0B","NDAR_INV9PUA8D0B","NDAR_INVANUGPBR4","NDAR_INVK6RANRAB","NDAR_INVK7150G4Z","NDAR_INVLW9XT5P3","NDAR_INVP3G9ZM2J","NDAR_INVPF0N5FWX","NDAR_INVTB7KL2UL","NDAR_INVNUKK77ZR","NDAR_INVURZU1N9V","NDAR_INVVR93TB4C","NDAR_INVNX6KVGNJ","NDAR_INVYUTY0RGD","NDAR_INVPWLFYWTX")  
+uncorrected_id <- id_list$uncorrected_id
+
+corrected_id <- id_list$corrected_id
 
 change_ID_tibble <- tibble(wrong_id = uncorrected_id,
                           right_id = corrected_id )
